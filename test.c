@@ -1,3 +1,5 @@
-int main(){
-    return 0;
-}
+
+int a=1;
+int b=2;
+int c;
+char g='c';

@@ -15,6 +15,27 @@ class ToJSVisitor(CVisitor):
     ARRAY_TYPE = 1
     FUNCTION_TYPE = 2
 
+    def __init__(self):
+        # Create some useful types
+        double = ir.DoubleType()
+        self.fnty = ir.FunctionType(double, (double, double))
+
+        # Create an empty module...
+        self.module = ir.Module()
+        ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
+        # and declare a function named "fpadd" inside it
+        self.func = ir.Function(self.module, self.fnty, name="fpadd")
+        #ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
+        # Now implement the function
+        self.block = self.func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(self.block)
+        # a, b = self.func.args
+        # result = self.builder.fadd(a, b, name="res")
+        # self.builder.ret(result)
+        # self.builder.alloca(ir.IntType(32),name="aaa")
+        # a=self.builder.alloca(ir.IntType(32), name="aab")
+        # self.builder.store(ir.IntType(32)(9),a)
+
     def visitCompilationUnit(self, ctx):
         ans = [self.visit(i) for i in ctx.children[:-1]]
         # ans = [x for x in ans if x]
@@ -119,10 +140,28 @@ class ToJSVisitor(CVisitor):
             'int':(32, 4),
             'char':(8, 4)
         }.get(_specifier)
-        declaration = '%{} = alloca i{}, align {}'.format('name', _type[0], _type[1])
-
-        # return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList()) + ';'
-        return declaration
+        #print(ctx.initDeclaratorList().initDeclarator)
+        print("here",ctx.children)
+        rtn_ = self.visit(ctx.initDeclaratorList())
+        len_=len(rtn_)
+        if _specifier=='int':
+            # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
+            if len_==2:
+                name_,val_=rtn_[0],rtn_[1]
+                new_int_=self.builder.alloca(ir.IntType(32),name=name_)
+                self.builder.store(ir.IntType(32)(val_), new_int_)
+            elif len_==1:
+                name_= rtn_
+                new_int_ = self.builder.alloca(ir.IntType(32), name=name_)
+        elif _specifier=='char':
+            if len_ == 2:
+                name_, val_ = rtn_[0],rtn_[1]
+                new_int_ = self.builder.alloca(ir.IntType(8), name=name_)
+                self.builder.store(ir.IntType(8)(val_), new_int_)
+            elif len_ == 1:
+                name_ = rtn_
+                new_int_ = self.builder.alloca(ir.IntType(8), name=name_)
+        return ''
 
     def visitAssignmentExpression(self, ctx:CParser.AssignmentExpressionContext):
         if ctx.logicalAndExpression():
@@ -211,12 +250,14 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.declaration())
 
     def visitInitDeclaratorList(self, ctx):
-        return ', '.join([self.visit(i) for i in ctx.initDeclarator()])
+        print("text",ctx.getText())
+        return self.visit(ctx.initDeclarator())
 
     def visitInitDeclarator(self, ctx):
         if ctx.initializer():
-            return self.visit(ctx.declarator()) + ' = ' + self.visit(ctx.initializer())
-        return self.visit(ctx.declarator())
+            # 如果有赋值语句，就返回值和变量名；否则只返回变量名
+            return ctx.declarator().getText(), ctx.initializer().getText()
+        return ctx.declarator().getText()
 
     def visitInitializer(self, ctx):
         if ctx.assignmentExpression():
@@ -306,11 +347,12 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
     tree = parser.compilationUnit()
-    ans = ToJSVisitor().visit(tree)
-    outfile = open('test.js' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8')
-    outfile.write(ans)
+    _visitor = ToJSVisitor()
+    ans=_visitor.visit(tree)
+    outfile = open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8')
+    outfile.write(repr(_visitor.module))
     outfile.close()
-    print(ans)
+    print(repr(_visitor.module))
 
 if __name__ == '__main__':
     main(['main', 'test.c'])
