@@ -21,10 +21,10 @@ class ToJSVisitor(CVisitor):
         ans += ' ' + self.visit(ctx.compoundStatement())
         return ans
 
-    def visitTypeSpecifier(self, ctx):
-        if ctx.CONST():
-            return 'const'
-        return 'let'
+    # def visitDeclarationSpecifiers(self, ctx):
+    #     if ctx.CONST():
+    #         return 'const'
+    #     return 'let'
 
     def visitPureIdentifier(self, ctx:CParser.DeclaratorContext):
         return ctx.directDeclarator().Identifier().getText()
@@ -44,10 +44,19 @@ class ToJSVisitor(CVisitor):
         return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
 
     def visitDeclaration(self, ctx):
-        if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
-            # there is no function declaration in JS
-            return
-        return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList()) + ';'
+        # if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
+        #     # there is no function declaration in JS
+        #     return
+        # _specifier
+        _specifier = ctx.declarationSpecifiers().declarationSpecifier()[-1].getText()
+        _type = {
+            'int':(32, 4),
+            'char':(8, 4)
+        }.get(_specifier)
+        declaration = '%{} = alloca i{}, align {}'.format('name', _type[0], _type[1])
+
+        # return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList()) + ';'
+        return declaration
 
     def visitAssignmentExpression(self, ctx:CParser.AssignmentExpressionContext):
         if ctx.logicalAndExpression():
