@@ -1,8 +1,8 @@
 import sys
 from antlr4 import *
-from CLexer import CLexer
-from CParser import CParser
-from CVisitor import CVisitor
+from parser_.CLexer import CLexer
+from parser_.CParser import CParser
+from parser_.CVisitor import CVisitor
 
 
 def addIndentation(a, num=2):
@@ -12,8 +12,8 @@ def addIndentation(a, num=2):
 class ToJSVisitor(CVisitor):
     def visitCompilationUnit(self, ctx):
         ans = [self.visit(i) for i in ctx.children[:-1]]
-        ans = [x for x in ans if x]
-        return '\n'.join(ans) + '\nmain();\n'
+        # ans = [x for x in ans if x]
+        return '\n'.join(ans) # + '\nmain();\n'
 
     def visitFunctionDefinition(self, ctx):
         ans = 'function'
@@ -26,22 +26,22 @@ class ToJSVisitor(CVisitor):
             return 'const'
         return 'let'
 
-    def visitPureIdentifier(self, ctx:CParser.PureIdentifierContext):
-        return ctx.Identifier().getText()
+    def visitPureIdentifier(self, ctx:CParser.DeclaratorContext):
+        return ctx.directDeclarator().Identifier().getText()
 
-    def visitArrayIdentifier(self, ctx:CParser.ArrayIdentifierContext):
-        if ctx.assignmentExpression():
-            # array definition
-            length = self.visit(ctx.assignmentExpression())
-            return f'{ctx.Identifier().getText()} = new Array({length})'
-        else:
-            # string definition
-            return f'{ctx.Identifier().getText()}'
+    # def visitArrayIdentifier(self, ctx:CParser.ArrayIdentifierContext):
+    #     if ctx.assignmentExpression():
+    #         # array definition
+    #         length = self.visit(ctx.assignmentExpression())
+    #         return f'{ctx.Identifier().getText()} = new Array({length})'
+    #     else:
+    #         # string definition
+    #         return f'{ctx.Identifier().getText()}'
 
-    def visitFunctionDefinitionOrDeclaration(self, ctx:CParser.FunctionDefinitionOrDeclarationContext):
-        if ctx.parameterTypeList():
-            return f'{ctx.Identifier().getText()}({self.visit(ctx.parameterTypeList())})'
-        return f'{ctx.Identifier().getText()}()'
+    def visitFunctionDefinitionOrDeclaration(self, ctx:CParser.FunctionDefinitionContext):
+        if ctx.declarationList():
+            return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
+        return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
 
     def visitDeclaration(self, ctx):
         if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
@@ -213,4 +213,4 @@ def main(argv):
     print(ans)
 
 if __name__ == '__main__':
-    main(sys.argv)
+    main(['main', 'test.c'])
