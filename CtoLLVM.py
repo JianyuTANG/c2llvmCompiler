@@ -30,7 +30,7 @@ class ToJSVisitor(CVisitor):
     #     if ctx.CONST():
     #         return 'const'
     #     return 'let'
-    
+
     def visitDeclarator(self, ctx: CParser.DeclaratorContext):
         # 只考虑后继为 directDeclarator 的情况
         return self.visit(ctx.directDeclarator())
@@ -79,7 +79,7 @@ class ToJSVisitor(CVisitor):
                     return name, ret_tp, []
                 elif ctx.children[2].getRuleIndex() == CParser.parameterTypeList:
                     # 有参数 形如a(int, char, ...)
-
+                    pass
             else:
                 # ERROR
                 pass
