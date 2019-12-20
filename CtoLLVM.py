@@ -3,6 +3,7 @@ from antlr4 import *
 from parser_.CLexer import CLexer
 from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
+import llvmlite.ir as ir
 
 
 def addIndentation(a, num=2):
@@ -10,6 +11,10 @@ def addIndentation(a, num=2):
 
 
 class ToJSVisitor(CVisitor):
+    BASE_TYPE = 0
+    ARRAY_TYPE = 1
+    FUNCTION_TYPE = 2
+
     def visitCompilationUnit(self, ctx):
         ans = [self.visit(i) for i in ctx.children[:-1]]
         # ans = [x for x in ans if x]
@@ -20,6 +25,62 @@ class ToJSVisitor(CVisitor):
         ans += ' ' + self.visit(ctx.declarator())
         ans += ' ' + self.visit(ctx.compoundStatement())
         return ans
+
+    def visitDeclarator(self, ctx: CParser.DeclaratorContext):
+        # 只考虑后继为 directDeclarator 的情况
+        return self.visit(ctx.directDeclarator())
+
+    def visitDirectDeclarator(self, ctx: CParser.DirectDeclaratorContext):
+        """
+            directDeclarator
+                :   Identifier
+                |   directDeclarator '[' assignmentExpression? ']'
+                |   directDeclarator '(' parameterTypeList ')'
+                ;
+            :param ctx:
+            :return:声明变量的类型，名字name,llvm类型,
+                    如果是变量是函数FUNTION_TYPE，则还会返回所有参数的名字arg_names
+                    如果变量是数组ARRAY_TYPE，会返回数组范围列表
+                    如果变量是普通类型BASE_TYPE,会返回一个空列表
+        """
+        if ctx.getRuleIndex() == CParser.Identifier:
+            # Identifier 普通变量名
+            return ctx.getText(), self.current_type, []
+        elif ctx.children[0].getRuleIndex() == CParser.Identifier:
+            if ctx.children[1].getText() == '[':
+                # 数组
+                name, tp, sz = self.visitDirectDeclarator(ctx.directDeclarator())
+                tp = ir.PointerType(tp)
+                if ctx.children[2].getText() == ']':
+                    # 形如 a[] 实际上是指针
+                    return name, tp, sz
+                else:
+                    try:
+                        length = int(ctx.assignmentExpression().getText())
+                    except:
+                        # ERROR
+                        return
+                    if length <= 0:
+                        # ERROR
+                        return
+                    sz.append(length)
+                    return name, tp, sz
+            elif ctx.children[1].getText() == '(':
+                # 函数声明
+                name, ret_tp, pms = self.visitDirectDeclarator(ctx.directDeclarator())
+                ret_tp = ir.FunctionType(ret_tp, pms)
+                if ctx.children[2].getText() == ')':
+                    # 无参数 形如a()
+                    return name, ret_tp, []
+                elif ctx.children[2].getRuleIndex() == CParser.parameterTypeList:
+                    # 有参数 形如a(int, char, ...)
+
+            else:
+                # ERROR
+                pass
+        else:
+            # ERROR
+            pass
 
     def visitTypeSpecifier(self, ctx):
         if ctx.CONST():
@@ -189,10 +250,35 @@ class ToJSVisitor(CVisitor):
         return ', '.join([self.visit(x) for x in ctx.initializer()])
 
     def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):
-        return ', '.join([self.visitParameterDeclaration2(x) for x in ctx.parameterList().parameterDeclaration()])
+        """
+            parameterTypeList
+                :   parameterList
+                |   parameterList ',' '...'
+                ;
+            :param ctx:
+            :return: 参数列表, true/false
+        """
+        if len(ctx.children) == 1:
+            return self.visit(ctx.parameterList()), False
+        else:
+            return self.visit(ctx.parameterList()), True
 
     def visitParameterList(self, ctx: CParser.ParameterListContext):
-        return ', '.join([self.visit(x) for x in ctx.parameterDeclaration()])
+        """
+            parameterList
+                :   parameterDeclaration
+                |   parameterList ',' parameterDeclaration
+                ;
+            :param ctx:
+            :return: 返回变量名字列表arg_names和变量类型列表arg_types
+        """
+        if len(ctx.children) == 1:
+            arg_list = []
+        else:
+            arg_list = self.visit(ctx.parameterList())
+        item = self.visit(ctx.parameterDeclaration())
+        arg_list.append(item)
+        return arg_list
 
     def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):
         return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.declarator())
