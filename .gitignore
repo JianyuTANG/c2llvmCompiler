@@ -129,5 +129,4 @@ dmypy.json
 .pyre/
 .idea/
 .vscode/
-test.c
-test.js
+test.*
