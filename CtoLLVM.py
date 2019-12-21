@@ -35,6 +35,7 @@ class ToJSVisitor(CVisitor):
 
         # Create an empty module...
         self.module = ir.Module()
+        self.builder = None
         self.symbol_table = SymbolTable(None)
         self.lst_continue = None
         self.lst_break = None
@@ -78,6 +79,7 @@ class ToJSVisitor(CVisitor):
         block = func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
         # 创建子符号表
+        self.symbol_table.insert(name, value=func)
         self.symbol_table = createTable(self.symbol_table)
         func_args = func.args
         arg_names = [j for i, j in params]
@@ -210,6 +212,7 @@ class ToJSVisitor(CVisitor):
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
+                print(self.symbol_table.getValue(name))
                 continue
 
             _type2 = self.symbol_table.getType(name)
@@ -217,34 +220,54 @@ class ToJSVisitor(CVisitor):
                 # 数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
-                temp = self.builder.alloca(arr_type, name=name)
-                if init_val:
-                    # 有初值
-                    l = len(init_val)
-                    arr = self.builder.load(temp)
-                    print(length.constant)
-                    if l > length.constant:
-                        # 数组过大
-                        return
-                    for seq, val in enumerate(init_val):
-                        print(val)
-                        # seq = ir.Constant(ir.IntType(32), seq)
-                        self.builder.insert_value(arr, val, seq)
+                if self.builder:
+                    temp = self.builder.alloca(arr_type, name=name)
+                    if init_val:
+                        # 有初值
+                        l = len(init_val)
+                        if l > length.constant:
+                            # 数组过大
+                            return
+                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                        for i in range(l):
+                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                            ptr = self.builder.gep(ptr=temp, indices=indices)
+                            self.builder.store(init_val[i], ptr)
+                else:
+                    temp = ir.GlobalValue(self.module, arr_type, name=name)
+                    if init_val:
+                        # 有初值
+                        l = len(init_val)
+                        if l > length.constant:
+                            # 数组过大
+                            return
+                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                        for i in range(l):
+                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                            ptr = self.builder.gep(ptr=temp, indices=indices)
+                            self.builder.store(init_val[i], ptr)
+
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
             else:
                 # 普通变量
-                temp = self.builder.alloca(_type, size=1, name=name)
-                if init_val:
-                    if _type.is_pointer and _type.pointee == self.CHAR_TYPE:
-                        # 字符串指针变量
-                        ptr = self.builder.alloca(init_val.type)
-                        self.builder.store(init_val, ptr)
-                        ptr = self.builder.bitcast(ptr, _type)
-                        self.builder.store(ptr, temp)
-                    else:
-                        # 其他变量
-                        self.builder.store(init_val, temp)
+                if self.builder:
+                    temp = self.builder.alloca(_type, size=1, name=name)
+                    if init_val:
+                        if _type.is_pointer and _type.pointee == self.CHAR_TYPE:
+                            # 字符串指针变量
+                            ptr = self.builder.alloca(init_val.type)
+                            self.builder.store(init_val, ptr)
+                            ptr = self.builder.bitcast(ptr, _type)
+                            self.builder.store(ptr, temp)
+                        else:
+                            # 其他变量
+                            self.builder.store(init_val, temp)
+                else:
+                    temp = ir.GlobalValue(self.module, _type, name=name)
+                    if init_val:
+                        temp.store(value=init_val, ptr=temp)
+
                 # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
@@ -279,11 +302,40 @@ class ToJSVisitor(CVisitor):
             lhs=self.visit(ctx.unaryExpression())
             op_=self.visit(ctx.assignmentOperator())
             value_=self.visit(ctx.assignmentExpression())
-            return {
-                '=':self.builder.store(value_,lhs),
-            }.get(op_)
+            if op_=='=':
+                return self.builder.store(value_,lhs)
+            elif op_=='+=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.add(value_,old_value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='-=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.sub(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='*=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.mul(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='/=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.sdiv(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='%=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.srem(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            else:
+                print("unknown assignment operator")
+
 
     def visitAssignmentOperator(self, ctx:CParser.AssignmentOperatorContext):
+        """
+        assignmentOperator
+            :   '=' | '*=' | '/=' | '%=' | '+=' | '-=' | '<<=' | '>>=' | '&=' | '^=' | '|='
+            ;
+        :param ctx:
+        :return:
+        """
         print("assignment operator:",ctx.getText())
         return (ctx.getText())
 
@@ -524,10 +576,69 @@ class ToJSVisitor(CVisitor):
                 return self.builder.neg(val)
                 
 
-    # def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
+    def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
+        """
+        postfixExpression
+            :   primaryExpression
+            |   postfixExpression '[' expression ']'
+            |   postfixExpression '(' argumentExpressionList? ')'
+            |   postfixExpression '.' Identifier
+            |   postfixExpression '->' Identifier
+            |   postfixExpression '++'
+            |   postfixExpression '--'
+            |   '(' typeName ')' '{' initializerList '}'
+            |   '(' typeName ')' '{' initializerList ',' '}'
+            |   '__extension__' '(' typeName ')' '{' initializerList '}'
+            |   '__extension__' '(' typeName ')' '{' initializerList ',' '}'
+            ;
+        :param ctx:
+        :return:
+        """
+        print("postfix expression:",ctx.children)
+        if ctx.primaryExpression():
+            return self.visit(ctx.primaryExpression())
+        elif ctx.expression():
+            var = self.visit(ctx.postfixExpression())
+            var = self.builder.load(var)
+            index = self.visit(ctx.expression())
+            print(index.constant)
+            print(var)
+            val = self.builder.extract_value(var, index.constant)
+            return val
+        elif ctx.postfixExpression():
+            if ctx.children[1].getText()=='(':
+                # 表示是一个函数声明
+                print(ctx.postfixExpression().getText())
+                args_=[]
+                if ctx.argumentExpressionList():
+                    print(ctx.argumentExpressionList().getText())
+                lhs=self.visit(ctx.postfixExpression())
+                return self.builder.call(lhs, args_)
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
+        """
+        primaryExpression
+            :   Identifier
+            |   Constant
+            |   StringLiteral+
+            |   '(' expression ')'
+            |   genericSelection
+            |   '__extension__'? '(' compoundStatement ')' // Blocks (GCC extension)
+            |   '__builtin_va_arg' '(' unaryExpression ',' typeName ')'
+            |   '__builtin_offsetof' '(' typeName ',' unaryExpression ')'
+            ;
+        :param ctx:
+        :return:
+        """
         _str = ctx.getText()
+        print("primary expression: ",_str)
+        print(ctx.children)
+        if ctx.Identifier():
+            print(ctx.Identifier().getText())
+            print("symbol table",self.symbol_table.value_list)
+            rhs=self.symbol_table.getValue(ctx.Identifier().getText())
+            print(rhs)
+            return rhs
         if ctx.Constant():
             _str = ctx.Constant().getText()
             if re.match(r'^\d+$', _str):
