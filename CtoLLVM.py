@@ -4,6 +4,7 @@ from parser_.CLexer import CLexer
 from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
 from llvmlite import ir
+from SymbolTable import SymbolTable, ArrayType, BasicType
 
 
 def addIndentation(a, num=2):
@@ -28,6 +29,7 @@ class ToJSVisitor(CVisitor):
 
         # Create an empty module...
         self.module = ir.Module()
+        self.symbol_table = SymbolTable(None)
         # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
         # self.func = ir.Function(self.module, self.fnty, name="fpadd")
@@ -87,36 +89,32 @@ class ToJSVisitor(CVisitor):
                     如果变量是数组ARRAY_TYPE，会返回数组范围列表
                     如果变量是普通类型BASE_TYPE,会返回一个空列表
         """
-        # if ctx.Identifier():
-        #     # Identifier 普通变量名
-        #     return ctx.getText(), self.current_type, []
-        # elif ctx.children[0].Identifier():
-        #     if ctx.children[1].getText() == '[':
-        #         # 数组
-        #         name, tp, sz = self.visitDirectDeclarator(
-        #             ctx.directDeclarator())
-        #         tp = ir.PointerType(tp)
-        #         if ctx.children[2].getText() == ']':
-        #             # 形如 a[] 实际上是指针
-        #             return name, tp, sz
-        #         else:
-        #             try:
-        #                 length = int(ctx.assignmentExpression().getText())
-        #             except:
-        #                 # ERROR
-        #                 return
-        #             if length <= 0:
-        #                 # ERROR
-        #                 return
-        #             sz.append(length)
-        #             return name, tp, sz
         if ctx.Identifier():
-            return ctx.getText()
-
-        if ctx.LeftParen().getText() == '(':
+            name = self.visit(ctx.Identifier())
+            btype = (self.BASE_TYPE, None)
+            self.symbol_table.insert(name, btype)
+            return name
+        elif ctx.children[1].getText() == '[':
+            name = self.visit(ctx.directDeclarator())
+            if ctx.assignmentExpression():
+                length = self.visit(ctx.assignmentExpression())
+                btype = (self.ARRAY_TYPE, length)
+            else:
+                pass
+            self.symbol_table.insert(name, btype=btype)
+            return name
+        elif ctx.children[1].getText() == '(':
             name = self.visit(ctx.directDeclarator())
             params = self.visit(ctx.parameterTypeList())
             return name, params
+
+        # if ctx.Identifier():
+        #     return ctx.getText()
+        #
+        # if ctx.LeftParen().getText() == '(':
+        #     name = self.visit(ctx.directDeclarator())
+        #     params = self.visit(ctx.parameterTypeList())
+        #     return name, params
             # 函数声明
             # name, ret_tp, pms = self.visitDirectDeclarator(
             #     ctx.directDeclarator())
@@ -165,25 +163,34 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.children[-1])
 
     def visitDeclaration(self, ctx):
-        # if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
-        #     # there is no function declaration in JS
-        #     return
-        # _specifier
-
-        # .declarationSpecifier()[-1].getText()
         _type = self.visit(ctx.declarationSpecifiers())
-        # print("here",ctx.children)
-        rtn_ = self.visit(ctx.initDeclaratorList())
-        len_ = len(rtn_)
-        # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
-        if len_ == 2:
-            name_, val_ = rtn_[0], rtn_[1]
-            new_int_ = self.builder.alloca(_type, name=name_)
-            self.builder.store(_type(val_), new_int_)
-        elif len_ == 1:
-            name_ = rtn_
-            new_int_ = self.builder.alloca(_type, name=name_)
-        # return ''
+        declarator_list = self.visit(ctx.initDeclaratorList())
+        for name, init_val in declarator_list:
+            _type2 = self.symbol_table.getType(name)
+            if _type2[0] == self.ARRAY_TYPE:
+                # 数组类型
+                length = _type2[1]
+            else:
+                # 普通变量
+                length = 1
+            temp = self.builder.alloca(_type, size=length, name=name)
+            if init_val:
+                self.builder.store(init_val, temp)
+            # 保存指针
+            self.symbol_table.insert(name, btype=_type2, value=temp)
+
+
+        # rtn_ = self.visit(ctx.initDeclaratorList())
+        # len_ = len(rtn_)
+        # # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
+        # if len_ == 2:
+        #     name_, val_ = rtn_[0], rtn_[1]
+        #     new_int_ = self.builder.alloca(_type, name=name_)
+        #     self.builder.store(_type(val_), new_int_)
+        # elif len_ == 1:
+        #     name_ = rtn_
+        #     new_int_ = self.builder.alloca(_type, name=name_)
+        # # return ''
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         if ctx.logicalAndExpression():
@@ -274,14 +281,26 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.declaration())
 
     def visitInitDeclaratorList(self, ctx):
-        print("text", ctx.getText())
-        return self.visit(ctx.initDeclarator())
+        declarator_list = []
+        declarator_list.append(self.visit(ctx.initDeclarator()))
+        if ctx.initDeclaratorList():
+            declarator_list += self.visit(ctx.initDeclaratorList())
+        return declarator_list
+
+        # print("text", ctx.getText())
+        # return self.visit(ctx.initDeclarator())
 
     def visitInitDeclarator(self, ctx):
         if ctx.initializer():
-            # 如果有赋值语句，就返回值和变量名；否则只返回变量名
-            return ctx.declarator().getText(), ctx.initializer().getText()
-        return ctx.declarator().getText()
+            declarator = (self.visit(ctx.declarator()), self.visit(ctx.initializer()))
+        else:
+            declarator = (self.visit(ctx.declarator()), None)
+        return declarator
+
+        # if ctx.initializer():
+        #     # 如果有赋值语句，就返回值和变量名；否则只返回变量名
+        #     return ctx.declarator().getText(), ctx.initializer().getText()
+        # return ctx.declarator().getText()
 
     def visitInitializer(self, ctx):
         if ctx.assignmentExpression():
