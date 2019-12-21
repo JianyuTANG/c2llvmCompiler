@@ -76,6 +76,7 @@ class ToJSVisitor(CVisitor):
         block = func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
         # 创建子符号表
+        self.symbol_table.insert(name, value=func)
         self.symbol_table = createTable(self.symbol_table)
         func_args = func.args
         arg_names = [j for i, j in params]
@@ -204,6 +205,7 @@ class ToJSVisitor(CVisitor):
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
+                print(self.symbol_table.getValue(name))
                 continue
 
             _type2 = self.symbol_table.getType(name)
@@ -215,15 +217,20 @@ class ToJSVisitor(CVisitor):
                 if init_val:
                     # 有初值
                     l = len(init_val)
-                    arr = self.builder.load(temp)
                     print(length.constant)
                     if l > length.constant:
                         # 数组过大
                         return
-                    for seq, val in enumerate(init_val):
-                        print(val)
-                        # seq = ir.Constant(ir.IntType(32), seq)
-                        self.builder.insert_value(arr, val, seq)
+                    indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                    # indices = [i for i in range(l)]
+                    print(temp.type)
+                    print(self.symbol_table.getValue('main'))
+                    ptrs = self.builder.gep(temp, indices=indices)
+                    for seq, ptr in enumerate(ptrs):
+                        self.builder.store(init_val[seq], ptr)
+                    # for seq, val in enumerate(init_val):
+                    #     print(val)
+                    #     self.builder.insert_value(arr, val, seq)
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
             else:
@@ -510,7 +517,27 @@ class ToJSVisitor(CVisitor):
                 return self.builder.neg(val)
                 
 
-    # def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
+    def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
+        '''
+        postfixExpression
+        :   primaryExpression
+        |   postfixExpression '[' expression ']'
+        只考虑以上两种
+
+        :param ctx:
+        :return:
+        '''
+        if ctx.primaryExpression():
+            return self.visit(ctx.primaryExpression())
+        elif ctx.expression():
+            var = self.visit(ctx.postfixExpression())
+            var = self.builder.load(var)
+            index = self.visit(ctx.expression())
+            print(index.constant)
+            print(var)
+            val = self.builder.extract_value(var, index.constant)
+            print(val.constant)
+            return val
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         _str = ctx.getText()
