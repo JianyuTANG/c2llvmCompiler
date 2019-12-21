@@ -36,6 +36,8 @@ class ToJSVisitor(CVisitor):
         # Create an empty module...
         self.module = ir.Module()
         self.symbol_table = SymbolTable(None)
+        self.lst_continue = None
+        self.lst_break = None
         # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
         # self.func = ir.Function(self.module, self.fnty, name="fpadd")
@@ -566,7 +568,7 @@ class ToJSVisitor(CVisitor):
     #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitCompoundStatement(self, ctx):
-        for i in ctx.children[1:-1]:
+        for i in ctx.children:
             self.visit(i)
         # return '\n{\n' + addIndentation('\n'.join([self.visit(i) for i in ctx.children[1:-1]])) + '\n}'
 
@@ -612,16 +614,25 @@ class ToJSVisitor(CVisitor):
                 self.builder.ret_void()
 
         elif ctx.Continue():
-            pass
+            if self.lst_continue:
+                self.builder.branch(self.lst_continue)
+            else:
+                raise Exception()
         elif ctx.Break():
-            pass
+            if self.lst_break:
+                self.builder.branch(self.lst_break)
+            else:
+                raise Exception()
 
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.While():
             # block_name = self.builder.block.name
+            self.symbol_table = createTable(self.symbol_table)
             init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
             do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
             end_block = self.builder.append_basic_block()#(name='{}.loop_end'.format(block_name))
+            lst_continue, lst_break = self.lst_continue, self.lst_break
+            self.lst_continue, self.lst_break = init_block, end_block
             self.builder.branch(init_block)
             self.builder.position_at_start(init_block)
             expression = self.visit(ctx.expression())
@@ -635,6 +646,8 @@ class ToJSVisitor(CVisitor):
             #     with otherwise:
             #         self.builder.branch(end_block)
             self.builder.position_at_start(end_block)
+            self.lst_continue, self.lst_break = lst_continue, lst_break
+            self.symbol_table = self.symbol_table.getFather()
         elif ctx.Do():
             pass
         elif ctx.For():
@@ -683,7 +696,7 @@ class ToJSVisitor(CVisitor):
         :return:
         """
         print("selection",ctx.children)
-        if ctx.children[0].getText() == 'if':
+        if ctx.If():
             # print(ctx.statement()[0].getText())
             # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
