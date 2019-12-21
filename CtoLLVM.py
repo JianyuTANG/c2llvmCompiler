@@ -179,15 +179,19 @@ class ToJSVisitor(CVisitor):
             return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
         return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
 
-    def visitTypeSpecifier(self, ctx):
-        _type = {
-            'int': self.INT_TYPE,
-            'char': self.CHAR_TYPE,
-            'float': self.FLOAT_TYPE,
-            'double': self.DOUBLE_TYPE,
-            'void': self.VOID_TYPE
-        }.get(ctx.getText())
-        return _type
+    def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
+        if ctx.pointer():
+            _type = self.visit(ctx.typeSpecifier())
+            return ir.PointerType(_type)
+        else:
+            _type = {
+                'int': self.INT_TYPE,
+                'char': self.CHAR_TYPE,
+                'float': self.FLOAT_TYPE,
+                'double': self.DOUBLE_TYPE,
+                'void': self.VOID_TYPE
+            }.get(ctx.getText())
+            return _type
 
     def visitDeclarationSpecifiers(self, ctx):
         return self.visit(ctx.children[-1])
@@ -232,7 +236,15 @@ class ToJSVisitor(CVisitor):
                 # 普通变量
                 temp = self.builder.alloca(_type, size=1, name=name)
                 if init_val:
-                    self.builder.store(init_val, temp)
+                    if _type.is_pointer and _type.pointee == self.CHAR_TYPE:
+                        # 字符串指针变量
+                        ptr = self.builder.alloca(init_val.type)
+                        self.builder.store(init_val, ptr)
+                        ptr = self.builder.bitcast(ptr, _type)
+                        self.builder.store(ptr, temp)
+                    else:
+                        # 其他变量
+                        self.builder.store(init_val, temp)
                 # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
@@ -530,8 +542,19 @@ class ToJSVisitor(CVisitor):
             else:
                 raise Exception()
         elif ctx.StringLiteral():
-            # 处理字符串
-            pass
+            _str = ctx.StringLiteral()[0].getText()[1:-1]
+            # byte = _str.encode('ascii') + b'\0'
+            length = len(_str) + 1
+            # arr_type = ir.ArrayType(self.CHAR_TYPE, length)
+            _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
+            temp = ir.Constant.literal_array(_str_array)
+            # ptr = self.builder.alloca(arr_type)
+            # self.builder.store(temp, ptr)
+            # # temp = self.builder.alloca(arr_type)
+            # for seq, val in enumerate(_str):
+            #     self.builder.insert_value(temp, val, seq)
+            #     # 处理字符串
+            return temp
         else:
             # 变量名
             val = self.symbol_table.getValue(_str)
