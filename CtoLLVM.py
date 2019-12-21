@@ -22,7 +22,7 @@ class ToJSVisitor(CVisitor):
     FLOAT_TYPE = ir.FloatType()
     DOUBLE_TYPE = ir.DoubleType()
     VOID_TYPE = ir.VoidType()
-    BOOL_TYPE=ir.IntType(1)
+    BOOL_TYPE = ir.IntType(1)
 
     def __init__(self):
         # Create some useful types
@@ -124,6 +124,8 @@ class ToJSVisitor(CVisitor):
             return name
         elif ctx.children[1].getText() == '(':
             name = self.visit(ctx.directDeclarator())
+            btype = (self.FUNCTION_TYPE, None)
+            self.symbol_table.insert(name, btype)
             if ctx.parameterTypeList():
                 params = self.visit(ctx.parameterTypeList())
             else:
@@ -188,18 +190,32 @@ class ToJSVisitor(CVisitor):
         _type = self.visit(ctx.declarationSpecifiers())
         declarator_list = self.visit(ctx.initDeclaratorList())
         for name, init_val in declarator_list:
+            if isinstance(name, tuple):
+                # 函数类型
+                _func = name
+                name = _func[0]
+                params = _func[1]
+                args = [i for i, j in params]
+                fnty = ir.FunctionType(_type, args)
+                func = ir.Function(self.module, fnty, name=name)
+                _type2 = self.symbol_table.getType(name)
+                self.symbol_table.insert(name, btype=_type2, value=func)
+                return
+
             _type2 = self.symbol_table.getType(name)
             if _type2[0] == self.ARRAY_TYPE:
                 # 数组类型
                 length = _type2[1]
+                temp = self.builder.alloca(_type, size=length, name=name)
+                self.symbol_table.insert(name, btype=_type2, value=temp)
             else:
                 # 普通变量
-                length = 1
-            temp = self.builder.alloca(_type, size=length, name=name)
-            if init_val:
-                self.builder.store(init_val, temp)
-            # 保存指针
-            self.symbol_table.insert(name, btype=_type2, value=temp)
+                temp = self.builder.alloca(_type, size=1, name=name)
+                if init_val:
+                    self.builder.store(init_val, temp)
+                # 保存指针
+                self.symbol_table.insert(name, btype=_type2, value=temp)
+
 
 
         # rtn_ = self.visit(ctx.initDeclaratorList())
@@ -605,22 +621,28 @@ class ToJSVisitor(CVisitor):
         :return:
         """
         print("selection",ctx.children)
-        if ctx.children[0].getText()=='if':
+        if ctx.children[0].getText() == 'if':
             # print(ctx.statement()[0].getText())
             # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
             expr_val, _ = self.visit(ctx.expression())
-            print("expression result:",expr_val,_)
-            branches=ctx.statement()
+            print("expression result:", expr_val, _)
+            branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
                 with self.builder.if_else(expr_val) as (then, otherwise):
                     with then:
+                        self.symbol_table = createTable(self.symbol_table)
                         self.visit(branches[0])
+                        self.symbol_table = self.symbol_table.getFather()
                     with otherwise:
+                        self.symbol_table = createTable(self.symbol_table)
                         self.visit(branches[1])
+                        self.symbol_table = self.symbol_table.getFather()
             else:  # 只有if分支
                 with self.builder.if_then(expr_val):
+                    self.symbol_table = createTable(self.symbol_table)
                     self.visit(branches[0])
+                    self.symbol_table = self.symbol_table.getFather()
         # if ctx.children[0].getText() == 'if':
         #     cond_val, _ = self.visit(ctx.expression())
         #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
