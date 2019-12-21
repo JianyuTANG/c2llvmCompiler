@@ -57,6 +57,7 @@ class ToJSVisitor(CVisitor):
         functionDefinition
         :   declarationSpecifiers? declarator declarationList? compoundStatement
         ;
+        不考虑 declarationList
         :param ctx:
         :return:
         '''
@@ -69,6 +70,7 @@ class ToJSVisitor(CVisitor):
         func = ir.Function(self.module, fnty, name=name)
         block = func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
+        # 创建子符号表
         self.symbol_table = createTable(self.symbol_table)
         func_args = func.args
         arg_names = [j for i, j in params]
@@ -79,6 +81,8 @@ class ToJSVisitor(CVisitor):
             self.builder.store(arg, arg_ptr)
             self.symbol_table.insert(name, value=arg_ptr)
         self.visit(ctx.compoundStatement())
+        # 退回父符号表
+        self.symbol_table = self.symbol_table.getFather()
 
 
     # def visitDeclarationSpecifiers(self, ctx):
