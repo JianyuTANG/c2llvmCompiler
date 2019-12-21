@@ -228,17 +228,11 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.conditionalExpression())
 
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
-        _str = ctx.getText()
-        if re.match(r'^([\+-])?\d+$', _str):
-            val = int(_str)
-            return ir.Constant(self.INT_TYPE, val)
-        elif re.match(r'^([\+-])?\d*.\d+$', _str):
-            val = float(_str)
-            return ir.Constant(self.FLOAT_TYPE, val)
-        else:
-            ptr = self.symbol_table.getValue(_str)
-            val = self.builder.load(ptr)
-            return val
+        val = self.visit(ctx.unaryExpression())
+        if val.type.is_pointer:
+            val = self.builder.load(val)
+        return val
+
 
 
     def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
@@ -357,7 +351,7 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("andexpression",ctx.getText())
+        print("andexpression", ctx.getText())
         if ctx.andExpression():
             # 上述第二种情况
             return self.visit(ctx.andExpression())
@@ -456,33 +450,39 @@ class ToJSVisitor(CVisitor):
             print("you can't do that")
 
 
-    def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
-        if len(ctx.children) > 1:
-            return ctx.children[0].getText() + ' ' + self.visit(ctx.postfixExpression())
+    def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
+        _str = ctx.getText()
+        if re.match(r'^([\+-])?\d+$', _str):
+            val = int(_str)
+            return ir.Constant(self.INT_TYPE, val)
+        elif re.match(r'^([\+-])?\d*.\d+$', _str):
+            val = float(_str)
+            return ir.Constant(self.FLOAT_TYPE, val)
         else:
-            return self.visit(ctx.postfixExpression())
+            val = self.symbol_table.getValue(_str)
+            return val
 
-    def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
-        if ctx.primaryExpression():
-            return self.visit(ctx.primaryExpression())
-        if ctx.children[1].getText() == '[':
-            return f'{self.visit(ctx.postfixExpression())}[{self.visit(ctx.expression())}]'
-        # function call
-        functionName = ctx.postfixExpression().getText()
-        if functionName == 'strlen':
-            return f'{self.visit(ctx.expression())}.length'
-        args = ctx.expression()
-        if args:
-            args = args.assignmentExpression()
-            args = [self.visit(x) for x in args]
-        if functionName == 'printf':
-            # printf doesn't append a newline but console
-            if args[0].endswith('\\n\"'):
-                args[0] = args[0][:-3] + '"'
-            return f'console.log({", ".join(args)})'
-        if ctx.expression():
-            return f'{ctx.postfixExpression().getText()}({self.visit(ctx.expression())})'
-        return f'{ctx.postfixExpression().getText()}()'
+    # def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
+    #     if ctx.primaryExpression():
+    #         return self.visit(ctx.primaryExpression())
+    #     if ctx.children[1].getText() == '[':
+    #         return f'{self.visit(ctx.postfixExpression())}[{self.visit(ctx.expression())}]'
+    #     # function call
+    #     functionName = ctx.postfixExpression().getText()
+    #     if functionName == 'strlen':
+    #         return f'{self.visit(ctx.expression())}.length'
+    #     args = ctx.expression()
+    #     if args:
+    #         args = args.assignmentExpression()
+    #         args = [self.visit(x) for x in args]
+    #     if functionName == 'printf':
+    #         # printf doesn't append a newline but console
+    #         if args[0].endswith('\\n\"'):
+    #             args[0] = args[0][:-3] + '"'
+    #         return f'console.log({", ".join(args)})'
+    #     if ctx.expression():
+    #         return f'{ctx.postfixExpression().getText()}({self.visit(ctx.expression())})'
+    #     return f'{ctx.postfixExpression().getText()}()'
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         return ctx.children[0].getText()
@@ -540,6 +540,26 @@ class ToJSVisitor(CVisitor):
         elif ctx.Continue():
             pass
         elif ctx.Break():
+            pass
+
+    def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
+        if ctx.While():
+            block_name = self.builder.block.name
+            loop_block = self.builder.append_basic_block(name='{}_loop'.format(block_name))
+            # continue_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
+            break_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
+            self.builder.position_at_start(loop_block)
+            expression = self.visit(ctx.expression())
+            with self.builder.if_else(expression) as (then, otherwise):
+                with then:
+                    pass
+                with otherwise:
+                    pass
+
+            pass
+        elif ctx.Do():
+            pass
+        elif ctx.For():
             pass
 
     # def visitStatement(self, ctx):
