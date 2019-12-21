@@ -3,7 +3,7 @@ from antlr4 import *
 from parser_.CLexer import CLexer
 from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
-import llvmlite.ir as ir
+from llvmlite import ir
 
 
 def addIndentation(a, num=2):
@@ -15,20 +15,26 @@ class ToJSVisitor(CVisitor):
     ARRAY_TYPE = 1
     FUNCTION_TYPE = 2
 
+    CHAR_TYPE = ir.IntType(8)
+    INT_TYPE = ir.IntType(32)
+    FLOAT_TYPE = ir.FloatType()
+    DOUBLE_TYPE = ir.DoubleType()
+    VOID_TYPE = ir.VoidType()
+
     def __init__(self):
         # Create some useful types
-        double = ir.DoubleType()
-        self.fnty = ir.FunctionType(double, (double, double))
+        # double = ir.DoubleType()
+        # self.fnty = ir.FunctionType(double, (double, double))
 
         # Create an empty module...
         self.module = ir.Module()
-        ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
+        # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
-        self.func = ir.Function(self.module, self.fnty, name="fpadd")
+        # self.func = ir.Function(self.module, self.fnty, name="fpadd")
         #ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # Now implement the function
-        self.block = self.func.append_basic_block(name="entry")
-        self.builder = ir.IRBuilder(self.block)
+        # self.block = self.func.append_basic_block(name="entry")
+        # self.builder = ir.IRBuilder(self.block)
         # a, b = self.func.args
         # result = self.builder.fadd(a, b, name="res")
         # self.builder.ret(result)
@@ -37,15 +43,27 @@ class ToJSVisitor(CVisitor):
         # self.builder.store(ir.IntType(32)(9),a)
 
     def visitCompilationUnit(self, ctx):
-        ans = [self.visit(i) for i in ctx.children[:-1]]
+        for i in ctx.children:
+            self.visit(i)
+        # ans = [self.visit(i) for i in ctx.children[:-1]]
         # ans = [x for x in ans if x]
-        return '\n'.join(ans) # + '\nmain();\n'
+        # return '\n'.join(ans) # + '\nmain();\n'
 
     def visitFunctionDefinition(self, ctx):
-        ans = 'function'
-        ans += ' ' + self.visit(ctx.declarator())
-        ans += ' ' + self.visit(ctx.compoundStatement())
-        return ans
+        assert ctx.declarationList() == None
+        _type = self.visit(ctx.declarationSpecifiers())
+        # self.visit(ctx.declarator())
+        name, params = self.visit(ctx.declarator())
+        args = [i for i, j in params]
+        fnty = ir.FunctionType(_type, args)
+        func = ir.Function(self.module, fnty, name=name)
+        block = func.append_basic_block(name="entry")
+        self.builder = ir.IRBuilder(block)
+        self.visit(ctx.compoundStatement())
+        # ans = 'function'
+        # ans += ' ' + self.visit(ctx.declarator())
+        # ans += ' ' + self.visit(ctx.compoundStatement())
+        # return ans
 
     # def visitDeclarationSpecifiers(self, ctx):
     #     if ctx.CONST():
@@ -69,52 +87,55 @@ class ToJSVisitor(CVisitor):
                     如果变量是数组ARRAY_TYPE，会返回数组范围列表
                     如果变量是普通类型BASE_TYPE,会返回一个空列表
         """
-        if ctx.getRuleIndex() == CParser.Identifier:
-            # Identifier 普通变量名
-            return ctx.getText(), self.current_type, []
-        elif ctx.children[0].getRuleIndex() == CParser.Identifier:
-            if ctx.children[1].getText() == '[':
-                # 数组
-                name, tp, sz = self.visitDirectDeclarator(ctx.directDeclarator())
-                tp = ir.PointerType(tp)
-                if ctx.children[2].getText() == ']':
-                    # 形如 a[] 实际上是指针
-                    return name, tp, sz
-                else:
-                    try:
-                        length = int(ctx.assignmentExpression().getText())
-                    except:
-                        # ERROR
-                        return
-                    if length <= 0:
-                        # ERROR
-                        return
-                    sz.append(length)
-                    return name, tp, sz
-            elif ctx.children[1].getText() == '(':
-                # 函数声明
-                name, ret_tp, pms = self.visitDirectDeclarator(ctx.directDeclarator())
-                ret_tp = ir.FunctionType(ret_tp, pms)
-                if ctx.children[2].getText() == ')':
-                    # 无参数 形如a()
-                    return name, ret_tp, []
-                elif ctx.children[2].getRuleIndex() == CParser.parameterTypeList:
-                    # 有参数 形如a(int, char, ...)
-                    pass
-            else:
-                # ERROR
-                pass
-        else:
-            # ERROR
-            pass
+        # if ctx.Identifier():
+        #     # Identifier 普通变量名
+        #     return ctx.getText(), self.current_type, []
+        # elif ctx.children[0].Identifier():
+        #     if ctx.children[1].getText() == '[':
+        #         # 数组
+        #         name, tp, sz = self.visitDirectDeclarator(
+        #             ctx.directDeclarator())
+        #         tp = ir.PointerType(tp)
+        #         if ctx.children[2].getText() == ']':
+        #             # 形如 a[] 实际上是指针
+        #             return name, tp, sz
+        #         else:
+        #             try:
+        #                 length = int(ctx.assignmentExpression().getText())
+        #             except:
+        #                 # ERROR
+        #                 return
+        #             if length <= 0:
+        #                 # ERROR
+        #                 return
+        #             sz.append(length)
+        #             return name, tp, sz
+        if ctx.Identifier():
+            return ctx.getText()
 
-    def visitTypeSpecifier(self, ctx):
-        if ctx.CONST():
-            return 'const'
-        return 'let'
+        if ctx.LeftParen().getText() == '(':
+            name = self.visit(ctx.directDeclarator())
+            params = self.visit(ctx.parameterTypeList())
+            return name, params
+            # 函数声明
+            # name, ret_tp, pms = self.visitDirectDeclarator(
+            #     ctx.directDeclarator())
 
-    def visitPureIdentifier(self, ctx:CParser.DeclaratorContext):
-        return ctx.directDeclarator().Identifier().getText()
+            # ret_tp = ir.FunctionType(ret_tp, pms)
+            # if ctx.children[2].getText() == ')':
+            #     # 无参数 形如a()
+            #     return name, ret_tp, []
+            # elif ctx.children[2].getRuleIndex() == CParser.parameterTypeList:
+            #     # 有参数 形如a(int, char, ...)
+            #     pass
+
+    # def visitTypeSpecifier(self, ctx):
+    #     if ctx.CONST():
+    #         return 'const'
+    #     return 'let'
+
+    # def visitPureIdentifier(self, ctx: CParser.DeclaratorContext):
+    #     return ctx.directDeclarator().Identifier().getText()
 
     # def visitArrayIdentifier(self, ctx:CParser.ArrayIdentifierContext):
     #     if ctx.assignmentExpression():
@@ -123,47 +144,48 @@ class ToJSVisitor(CVisitor):
     #         return f'{ctx.Identifier().getText()} = new Array({length})'
     #     else:
     #         # string definition
-    #         return f'{ctx.Identifier().getText()}'
+    #         return f'{ctx.Identifier().getText()}'        
 
-    def visitFunctionDefinitionOrDeclaration(self, ctx:CParser.FunctionDefinitionContext):
+    def visitFunctionDefinitionOrDeclaration(self, ctx: CParser.FunctionDefinitionContext):
         if ctx.declarationList():
             return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
         return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
+
+    def visitTypeSpecifier(self, ctx):
+        _type = {
+            'int': self.INT_TYPE,
+            'char': self.CHAR_TYPE,
+            'float': self.FLOAT_TYPE,
+            'double': self.DOUBLE_TYPE,
+            'void': self.VOID_TYPE
+        }.get(ctx.getText())
+        return _type
+
+    def visitDeclarationSpecifiers(self, ctx):
+        return self.visit(ctx.children[-1])
 
     def visitDeclaration(self, ctx):
         # if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
         #     # there is no function declaration in JS
         #     return
         # _specifier
-        _specifier = ctx.declarationSpecifiers().declarationSpecifier()[-1].getText()
-        _type = {
-            'int':(32, 4),
-            'char':(8, 4)
-        }.get(_specifier)
-        #print(ctx.initDeclaratorList().initDeclarator)
-        print("here",ctx.children)
-        rtn_ = self.visit(ctx.initDeclaratorList())
-        len_=len(rtn_)
-        if _specifier=='int':
-            # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
-            if len_==2:
-                name_,val_=rtn_[0],rtn_[1]
-                new_int_=self.builder.alloca(ir.IntType(32),name=name_)
-                self.builder.store(ir.IntType(32)(val_), new_int_)
-            elif len_==1:
-                name_= rtn_
-                new_int_ = self.builder.alloca(ir.IntType(32), name=name_)
-        elif _specifier=='char':
-            if len_ == 2:
-                name_, val_ = rtn_[0],rtn_[1]
-                new_int_ = self.builder.alloca(ir.IntType(8), name=name_)
-                self.builder.store(ir.IntType(8)(val_), new_int_)
-            elif len_ == 1:
-                name_ = rtn_
-                new_int_ = self.builder.alloca(ir.IntType(8), name=name_)
-        return ''
 
-    def visitAssignmentExpression(self, ctx:CParser.AssignmentExpressionContext):
+        # .declarationSpecifier()[-1].getText()
+        _type = self.visit(ctx.declarationSpecifiers())
+        # print("here",ctx.children)
+        rtn_ = self.visit(ctx.initDeclaratorList())
+        len_ = len(rtn_)
+        # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
+        if len_ == 2:
+            name_, val_ = rtn_[0], rtn_[1]
+            new_int_ = self.builder.alloca(_type, name=name_)
+            self.builder.store(_type(val_), new_int_)
+        elif len_ == 1:
+            name_ = rtn_
+            new_int_ = self.builder.alloca(_type, name=name_)
+        # return ''
+
+    def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         if ctx.logicalAndExpression():
             return self.visit(ctx.logicalAndExpression())
         if ctx.logicalOrExpression():
@@ -171,19 +193,19 @@ class ToJSVisitor(CVisitor):
         else:
             return self.visit(ctx.unaryExpression()) + ' = ' + self.visit(ctx.assignmentExpression())
 
-    def visitLogicalAndExpression(self, ctx:CParser.LogicalAndExpressionContext):
+    def visitLogicalAndExpression(self, ctx: CParser.LogicalAndExpressionContext):
         if ctx.logicalAndExpression():
             return self.visit(ctx.logicalAndExpression()) + ' && ' + self.visit(ctx.equalityExpression())
         else:
             return self.visit(ctx.equalityExpression())
 
-    def visitLogicalOrExpression(self, ctx:CParser.LogicalOrExpressionContext):
+    def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
         if ctx.logicalOrExpression():
             return self.visit(ctx.logicalOrExpression()) + ' || ' + self.visit(ctx.equalityExpression())
         else:
             return self.visit(ctx.equalityExpression())
 
-    def visitEqualityExpression(self, ctx:CParser.EqualityExpressionContext):
+    def visitEqualityExpression(self, ctx: CParser.EqualityExpressionContext):
         if len(ctx.children) == 1:
             return self.visit(ctx.relationalExpression())
         else:
@@ -193,27 +215,27 @@ class ToJSVisitor(CVisitor):
             if op == '!=':
                 op = '!=='
             return self.visit(ctx.equalityExpression()) + f' {op} ' + \
-                   self.visit(ctx.relationalExpression())
+                self.visit(ctx.relationalExpression())
 
-    def visitRelationalExpression(self, ctx:CParser.RelationalExpressionContext):
+    def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         if len(ctx.children) > 1:
             return self.visit(ctx.castExpression(0)) + ' ' + ctx.children[1].getText() + ' ' + self.visit(ctx.castExpression(1))
         else:
             return self.visit(ctx.castExpression(0))
 
-    def visitCastExpression(self, ctx:CParser.CastExpressionContext):
+    def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         if ctx.unaryExpression():
             return self.visit(ctx.unaryExpression())
         else:
             return ' '.join([self.visit(x) for x in ctx.children])
 
-    def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
+    def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
         if len(ctx.children) > 1:
             return ctx.children[0].getText() + ' ' + self.visit(ctx.postfixExpression())
         else:
             return self.visit(ctx.postfixExpression())
 
-    def visitPostfixExpression(self, ctx:CParser.PostfixExpressionContext):
+    def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
         if ctx.children[1].getText() == '[':
@@ -235,14 +257,16 @@ class ToJSVisitor(CVisitor):
             return f'{ctx.postfixExpression().getText()}({self.visit(ctx.expression())})'
         return f'{ctx.postfixExpression().getText()}()'
 
-    def visitPrimaryExpression(self, ctx:CParser.PrimaryExpressionContext):
+    def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         return ctx.children[0].getText()
 
-    def visitExpression(self, ctx:CParser.ExpressionContext):
+    def visitExpression(self, ctx: CParser.ExpressionContext):
         return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitCompoundStatement(self, ctx):
-        return '\n{\n' + addIndentation('\n'.join([self.visit(i) for i in ctx.children[1:-1]])) + '\n}'
+        for i in ctx.children[1:-1]:
+            self.visit(i)
+        # return '\n{\n' + addIndentation('\n'.join([self.visit(i) for i in ctx.children[1:-1]])) + '\n}'
 
     def visitBlockItem(self, ctx):
         if ctx.statement():
@@ -250,7 +274,7 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.declaration())
 
     def visitInitDeclaratorList(self, ctx):
-        print("text",ctx.getText())
+        print("text", ctx.getText())
         return self.visit(ctx.initDeclarator())
 
     def visitInitDeclarator(self, ctx):
@@ -273,7 +297,8 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.children[0]) + ';'
         txt = ctx.children[0].getText()
         if txt == 'if':
-            if_statements = f'if({self.visit(ctx.expression())})' + self.visit(ctx.statement(0))
+            if_statements = f'if({self.visit(ctx.expression())})' + \
+                self.visit(ctx.statement(0))
             else_statement = ''
             if len(ctx.children) > 5:
                 else_statement = '\nelse' + self.visit(ctx.statement(1))
@@ -282,11 +307,14 @@ class ToJSVisitor(CVisitor):
             return f'while({self.visit(ctx.expression())})' + self.visit(ctx.statement(0))
         if txt == 'for':
             forDeclaration = ctx.forDeclaration()
-            forDeclaration = '' if not forDeclaration else self.visit(forDeclaration)
+            forDeclaration = '' if not forDeclaration else self.visit(
+                forDeclaration)
             forExpression_0 = ctx.forExpression(0)
-            forExpression_0 = '' if not forExpression_0 else self.visit(forExpression_0)
+            forExpression_0 = '' if not forExpression_0 else self.visit(
+                forExpression_0)
             forExpression_1 = ctx.forExpression(1)
-            forExpression_1 = '' if not forExpression_1 else self.visit(forExpression_1)
+            forExpression_1 = '' if not forExpression_1 else self.visit(
+                forExpression_1)
             return f'for ({forDeclaration}; {forExpression_0}; {forExpression_1})' + self.visit(ctx.statement(0))
         if txt == 'return':
             expression = ''
@@ -295,7 +323,7 @@ class ToJSVisitor(CVisitor):
             return f'return {expression};'
         return ctx.getText()
 
-    def visitForDeclaration(self, ctx:CParser.ForDeclarationContext):
+    def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
         return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
 
     def visitTerminal(self, node):
@@ -313,10 +341,12 @@ class ToJSVisitor(CVisitor):
             :param ctx:
             :return: 参数列表, true/false
         """
-        if len(ctx.children) == 1:
-            return self.visit(ctx.parameterList()), False
-        else:
-            return self.visit(ctx.parameterList()), True
+        if ctx.parameterList():
+            return self.visit(ctx.parameterList())
+        # if len(ctx.children) == 1:
+        #     return self.visit(ctx.parameterList()), False
+        # else:
+        #     return self.visit(ctx.parameterList()), True
 
     def visitParameterList(self, ctx: CParser.ParameterListContext):
         """
@@ -327,19 +357,32 @@ class ToJSVisitor(CVisitor):
             :param ctx:
             :return: 返回变量名字列表arg_names和变量类型列表arg_types
         """
-        if len(ctx.children) == 1:
-            arg_list = []
+        if ctx.parameterList():
+            _param_list = self.visit(ctx.parameterList())
         else:
-            arg_list = self.visit(ctx.parameterList())
-        item = self.visit(ctx.parameterDeclaration())
-        arg_list.append(item)
-        return arg_list
+            _param_list = []
+        _param_decl = self.visit(ctx.parameterDeclaration())
+        _param_list.append(_param_decl)
+        return _param_list
+
+        # if len(ctx.children) == 1:
+        #     arg_list = []
+        # else:
+        #     arg_list = self.visit(ctx.parameterList())
+        # item = self.visit(ctx.parameterDeclaration())
+        # arg_list.append(item)
+        # return arg_list
 
     def visitParameterDeclaration(self, ctx: CParser.ParameterDeclarationContext):
-        return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.declarator())
+        _type = self.visit(ctx.declarationSpecifiers())
+        _name = self.visit(ctx.declarator())
+        # _type.name = _name
+        return _type, _name
 
-    def visitParameterDeclaration2(self, ctx: CParser.ParameterDeclarationContext):
-        return self.visit(ctx.declarator())
+    def output(self):
+        """返回代码"""
+        return repr(self.module)
+
 
 def main(argv):
     input = FileStream('test.c' if len(argv) <= 1 else argv[1])
@@ -348,11 +391,12 @@ def main(argv):
     parser = CParser(stream)
     tree = parser.compilationUnit()
     _visitor = ToJSVisitor()
-    ans=_visitor.visit(tree)
-    outfile = open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8')
-    outfile.write(repr(_visitor.module))
-    outfile.close()
-    print(repr(_visitor.module))
+    _visitor.visit(tree)
+
+    with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
+        f.write(_visitor.output())
+    print(_visitor.output())
+
 
 if __name__ == '__main__':
     main(['main', 'test.c'])
