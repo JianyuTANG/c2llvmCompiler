@@ -506,6 +506,9 @@ class ToJSVisitor(CVisitor):
         elif re.match(r'^([\+-])?\d*.\d+$', _str):
             val = float(_str)
             return ir.Constant(self.FLOAT_TYPE, val)
+        elif re.match(r"^'.'$", _str):
+            val = ord(_str[1])
+            return ir.Constant(self.CHAR_TYPE, val)            
         else:
             val = self.symbol_table.getValue(_str)
             return val
@@ -591,7 +594,7 @@ class ToJSVisitor(CVisitor):
 
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.While():
-            block_name = self.builder.block.name
+            # block_name = self.builder.block.name
             init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
             do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
             end_block = self.builder.append_basic_block()#(name='{}.loop_end'.format(block_name))
