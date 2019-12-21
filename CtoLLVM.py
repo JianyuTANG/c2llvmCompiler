@@ -592,14 +592,16 @@ class ToJSVisitor(CVisitor):
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.While():
             block_name = self.builder.block.name
-            loop_block = self.builder.append_basic_block(name='{}.loop'.format(block_name))
-            # continue_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
-            self.builder.branch(loop_block)
-            self.builder.position_at_start(loop_block)
+            init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
+            do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
+            end_block = self.builder.append_basic_block()#(name='{}.loop_end'.format(block_name))
+            self.builder.branch(init_block)
+            self.builder.position_at_start(init_block)
             expression = self.visit(ctx.expression())
-            self.builder.cbranch(expression, loop_block, end_block)
+            self.builder.cbranch(expression, do_block, end_block)
+            self.builder.position_at_start(do_block)
             self.visit(ctx.statement())
+            self.builder.branch(init_block)
             # with self.builder.if_else(expression) as (then, otherwise):
             #     with then:
             #         self.builder.branch(loop_block)
