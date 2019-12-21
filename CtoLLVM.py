@@ -274,11 +274,40 @@ class ToJSVisitor(CVisitor):
             lhs=self.visit(ctx.unaryExpression())
             op_=self.visit(ctx.assignmentOperator())
             value_=self.visit(ctx.assignmentExpression())
-            return {
-                '=':self.builder.store(value_,lhs),
-            }.get(op_)
+            if op_=='=':
+                return self.builder.store(value_,lhs)
+            elif op_=='+=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.add(value_,old_value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='-=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.sub(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='*=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.mul(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='/=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.sdiv(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            elif op_=='%=':
+                old_value_=self.builder.load(lhs)
+                new_value_=self.builder.srem(old_value_,value_)
+                return self.builder.store(new_value_,lhs)
+            else:
+                print("unknown assignment operator")
+
 
     def visitAssignmentOperator(self, ctx:CParser.AssignmentOperatorContext):
+        """
+        assignmentOperator
+            :   '=' | '*=' | '/=' | '%=' | '+=' | '-=' | '<<=' | '>>=' | '&=' | '^=' | '|='
+            ;
+        :param ctx:
+        :return:
+        """
         print("assignment operator:",ctx.getText())
         return (ctx.getText())
 
@@ -520,15 +549,24 @@ class ToJSVisitor(CVisitor):
                 
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
-        '''
+        """
         postfixExpression
-        :   primaryExpression
-        |   postfixExpression '[' expression ']'
-        只考虑以上两种
-
+            :   primaryExpression
+            |   postfixExpression '[' expression ']'
+            |   postfixExpression '(' argumentExpressionList? ')'
+            |   postfixExpression '.' Identifier
+            |   postfixExpression '->' Identifier
+            |   postfixExpression '++'
+            |   postfixExpression '--'
+            |   '(' typeName ')' '{' initializerList '}'
+            |   '(' typeName ')' '{' initializerList ',' '}'
+            |   '__extension__' '(' typeName ')' '{' initializerList '}'
+            |   '__extension__' '(' typeName ')' '{' initializerList ',' '}'
+            ;
         :param ctx:
         :return:
-        '''
+        """
+        print("postfix expression:",ctx.children)
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
         elif ctx.expression():
@@ -540,9 +578,40 @@ class ToJSVisitor(CVisitor):
             val = self.builder.extract_value(var, index.constant)
             print(val.constant)
             return val
+        elif ctx.postfixExpression():
+            if ctx.children[1].getText()=='(':
+                # 表示是一个函数声明
+                print(ctx.postfixExpression().getText())
+                args_=[]
+                if ctx.argumentExpressionList():
+                    print(ctx.argumentExpressionList().getText())
+                lhs=self.visit(ctx.postfixExpression())
+                return self.builder.call(lhs, args_)
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
+        """
+        primaryExpression
+            :   Identifier
+            |   Constant
+            |   StringLiteral+
+            |   '(' expression ')'
+            |   genericSelection
+            |   '__extension__'? '(' compoundStatement ')' // Blocks (GCC extension)
+            |   '__builtin_va_arg' '(' unaryExpression ',' typeName ')'
+            |   '__builtin_offsetof' '(' typeName ',' unaryExpression ')'
+            ;
+        :param ctx:
+        :return:
+        """
         _str = ctx.getText()
+        print("primary expression: ",_str)
+        print(ctx.children)
+        if ctx.Identifier():
+            print(ctx.Identifier().getText())
+            print("symbol table",self.symbol_table.value_list)
+            rhs=self.symbol_table.getValue(ctx.Identifier().getText())
+            print(rhs)
+            return rhs
         if ctx.Constant():
             _str = ctx.Constant().getText()
             if re.match(r'^\d+$', _str):
