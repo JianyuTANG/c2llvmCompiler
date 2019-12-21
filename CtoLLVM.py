@@ -274,39 +274,6 @@ class ToJSVisitor(CVisitor):
         return (ctx.getText())
 
 
-    def visitCastExpression(self, ctx:CParser.CastExpressionContext):
-        val = self.visit(ctx.unaryExpression())
-        if val.type.is_pointer:
-            val = self.builder.load(val)
-        return val
-
-
-    def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
-        _cast = self.visit(ctx.castExpression())
-        if ctx.multiplicativeExpression():
-            _mul = self.visit(ctx.multiplicativeExpression())
-            if ctx.Star():
-                return self.builder.mul(_mul, _cast)
-            elif ctx.Div():
-                return self.builder.sdiv(_mul, _cast)
-            elif ctx.Mod():
-                return self.builder.srem(_mul, _cast)
-        else:
-            return _cast
-
-    def visitAdditiveExpression(self, ctx:CParser.AdditiveExpressionContext):
-        _mul = self.visit(ctx.multiplicativeExpression())
-        if ctx.additiveExpression():
-            _add = self.visit(ctx.additiveExpression())
-
-            if ctx.Plus():
-                return self.builder.add(_add, _mul)
-            elif ctx.Minus():
-                return self.builder.sub(_add, _mul)
-
-        else:
-            return _mul
-
     def visitConditionalExpression(self, ctx:CParser.ConditionalExpressionContext):
         """
         conditionalExpression
@@ -498,45 +465,75 @@ class ToJSVisitor(CVisitor):
             print("you can't do that")
 
 
-    def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
-        _str = ctx.getText()
-        if re.match(r'^([\+-])?\d+$', _str):
-            val = int(_str)
-            return ir.Constant(self.INT_TYPE, val)
-        elif re.match(r'^([\+-])?\d*.\d+$', _str):
-            val = float(_str)
-            return ir.Constant(self.FLOAT_TYPE, val)
-        elif re.match(r"^'.'$", _str):
-            val = ord(_str[1])
-            return ir.Constant(self.CHAR_TYPE, val)            
+    def visitAdditiveExpression(self, ctx:CParser.AdditiveExpressionContext):
+        _mul = self.visit(ctx.multiplicativeExpression())
+        if ctx.additiveExpression():
+            _add = self.visit(ctx.additiveExpression())
+
+            if ctx.Plus():
+                return self.builder.add(_add, _mul)
+            elif ctx.Minus():
+                return self.builder.sub(_add, _mul)
+
         else:
-            val = self.symbol_table.getValue(_str)
-            return val
+            return _mul
+
+
+    def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
+        _cast = self.visit(ctx.castExpression())
+        if ctx.multiplicativeExpression():
+            _mul = self.visit(ctx.multiplicativeExpression())
+            if ctx.Star():
+                return self.builder.mul(_mul, _cast)
+            elif ctx.Div():
+                return self.builder.sdiv(_mul, _cast)
+            elif ctx.Mod():
+                return self.builder.srem(_mul, _cast)
+        else:
+            return _cast
+
+    def visitCastExpression(self, ctx:CParser.CastExpressionContext):
+        val = self.visit(ctx.unaryExpression())
+        if val.type.is_pointer:
+            val = self.builder.load(val)
+        return val
+
+
+    def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
+        if ctx.postfixExpression():
+            return self.visit(ctx.postfixExpression())
+
+        if ctx.unaryOperator():
+            val = self.visit(ctx.castExpression())
+            op = self.visit(ctx.unaryOperator())
+            if op == '-':
+                return self.builder.neg(val)
+                
 
     # def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
-    #     if ctx.primaryExpression():
-    #         return self.visit(ctx.primaryExpression())
-    #     if ctx.children[1].getText() == '[':
-    #         return f'{self.visit(ctx.postfixExpression())}[{self.visit(ctx.expression())}]'
-    #     # function call
-    #     functionName = ctx.postfixExpression().getText()
-    #     if functionName == 'strlen':
-    #         return f'{self.visit(ctx.expression())}.length'
-    #     args = ctx.expression()
-    #     if args:
-    #         args = args.assignmentExpression()
-    #         args = [self.visit(x) for x in args]
-    #     if functionName == 'printf':
-    #         # printf doesn't append a newline but console
-    #         if args[0].endswith('\\n\"'):
-    #             args[0] = args[0][:-3] + '"'
-    #         return f'console.log({", ".join(args)})'
-    #     if ctx.expression():
-    #         return f'{ctx.postfixExpression().getText()}({self.visit(ctx.expression())})'
-    #     return f'{ctx.postfixExpression().getText()}()'
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
-        return ctx.children[0].getText()
+        _str = ctx.getText()
+        if ctx.Constant():
+            _str = ctx.Constant().getText()
+            if re.match(r'^\d+$', _str):
+                val = int(_str)
+                return ir.Constant(self.INT_TYPE, val)
+            elif re.match(r'^\d*.\d+$', _str):
+                val = float(_str)
+                return ir.Constant(self.FLOAT_TYPE, val)
+            elif re.match(r"^'.'$", _str):
+                val = ord(_str[1])
+                return ir.Constant(self.CHAR_TYPE, val)
+            else:
+                raise Exception()
+        elif ctx.StringLiteral():
+            # 处理字符串
+            pass
+        else:
+            # 变量名
+            val = self.symbol_table.getValue(_str)
+            return val
 
     # def visitExpression(self, ctx: CParser.ExpressionContext):
     #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
