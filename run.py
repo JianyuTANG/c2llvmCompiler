@@ -1,6 +1,6 @@
 import llvmlite.binding as llvm
 import sys
-from ctypes import CFUNCTYPE, c_int
+from ctypes import CFUNCTYPE, c_char, c_int
 
 def create_execution_engine():
     """
