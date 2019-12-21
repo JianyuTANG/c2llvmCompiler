@@ -251,6 +251,10 @@ class ToJSVisitor(CVisitor):
         elif re.match(r'^([\+-])?\d*.\d+$', _str):
             val = float(_str)
             return ir.Constant(self.FLOAT_TYPE, val)
+        else:
+            ptr = self.symbol_table.getValue(_str)
+            val = self.builder.load(ptr)
+            return val
 
 
     def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
@@ -543,12 +547,11 @@ class ToJSVisitor(CVisitor):
 
     def visitJumpStatement(self, ctx):
         if ctx.Return():
-            # if ctx.expression():
-            #     _value = self.visit(ctx.expression())
-            #     self.builder.ret(_value)
-            # else:
-            #     self.builder.ret_void()
-            self.builder.ret_void()
+            if ctx.expression():
+                _value = self.visit(ctx.expression())
+                self.builder.ret(_value)
+            else:
+                self.builder.ret_void()
 
         elif ctx.Continue():
             pass
@@ -599,8 +602,8 @@ class ToJSVisitor(CVisitor):
         """
         print("selection",ctx.children)
         if ctx.children[0].getText()=='if':
-            print(ctx.statement()[0].getText())
-            print(ctx.statement()[1].getText())
+            # print(ctx.statement()[0].getText())
+            # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
             expr_val, _ = self.visit(ctx.expression())
             print("expression result:",expr_val,_)
