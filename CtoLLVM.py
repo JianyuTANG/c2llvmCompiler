@@ -12,6 +12,10 @@ def addIndentation(a, num=2):
     return '\n'.join([' ' * num + i for i in a.split('\n')])
 
 
+def getSize(_type):
+    pass
+
+
 class ToJSVisitor(CVisitor):
     BASE_TYPE = 0
     ARRAY_TYPE = 1
@@ -200,14 +204,28 @@ class ToJSVisitor(CVisitor):
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
-                return
+                continue
 
             _type2 = self.symbol_table.getType(name)
             if _type2[0] == self.ARRAY_TYPE:
                 # 数组类型
                 length = _type2[1]
-                temp = self.builder.alloca(_type, size=length, name=name)
+                arr_type = ir.ArrayType(_type, length.constant)
+                temp = self.builder.alloca(arr_type, name=name)
+                if init_val:
+                    # 有初值
+                    l = len(init_val)
+                    arr = self.builder.load(temp)
+                    print(length.constant)
+                    if l > length.constant:
+                        # 数组过大
+                        return
+                    for seq, val in enumerate(init_val):
+                        print(val)
+                        # seq = ir.Constant(ir.IntType(32), seq)
+                        self.builder.insert_value(arr, val, seq)
                 self.symbol_table.insert(name, btype=_type2, value=temp)
+
             else:
                 # 普通变量
                 temp = self.builder.alloca(_type, size=1, name=name)
@@ -408,7 +426,7 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("equalityexprssion",ctx.getText())
+        print("equalityexprssion", ctx.getText())
         print(ctx.children)
         if len(ctx.children) == 1:
             return self.visit(ctx.relationalExpression())
@@ -540,9 +558,8 @@ class ToJSVisitor(CVisitor):
     def visitInitializer(self, ctx):
         if ctx.assignmentExpression():
             return self.visit(ctx.assignmentExpression())
-        if ctx.initializerList():
-            return '[' + self.visit(ctx.initializerList()) + ']'
-        return '[]'
+        elif ctx.initializerList():
+            return self.visit(ctx.initializerList())
 
     def visitJumpStatement(self, ctx):
         if ctx.Return():
@@ -699,7 +716,20 @@ class ToJSVisitor(CVisitor):
         return node.getText()
 
     def visitInitializerList(self, ctx: CParser.InitializerListContext):
-        return ', '.join([self.visit(x) for x in ctx.initializer()])
+        '''
+
+initializerList
+    :   designation? initializer
+    |   initializerList ',' designation? initializer
+    ;
+        不考虑有designation的情况
+        :param ctx:
+        :return:
+        '''
+        ans = [self.visit(ctx.initializer())]
+        if ctx.initializerList():
+            ans = self.visit(ctx.initializerList()) + ans
+        return ans
 
     def visitParameterTypeList(self, ctx: CParser.ParameterTypeListContext):
         """
