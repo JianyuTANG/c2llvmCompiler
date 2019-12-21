@@ -396,6 +396,22 @@ class ToJSVisitor(CVisitor):
             else:
                 print("unknown type")
 
+    def visitShiftExpression(self, ctx:CParser.ShiftExpressionContext):
+        """
+        shiftExpression
+            :   additiveExpression
+            |   shiftExpression '<<' additiveExpression
+            |   shiftExpression '>>' additiveExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        if len(ctx.children) == 1:
+            return self.visit(ctx.additiveExpression())
+        else:
+            print("you can't do that")
+
+
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         if ctx.unaryExpression():
             return self.visit(ctx.unaryExpression())
