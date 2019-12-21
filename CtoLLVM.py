@@ -601,22 +601,28 @@ class ToJSVisitor(CVisitor):
         :return:
         """
         print("selection",ctx.children)
-        if ctx.children[0].getText()=='if':
+        if ctx.children[0].getText() == 'if':
             # print(ctx.statement()[0].getText())
             # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
             expr_val, _ = self.visit(ctx.expression())
-            print("expression result:",expr_val,_)
-            branches=ctx.statement()
+            print("expression result:", expr_val, _)
+            branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
                 with self.builder.if_else(expr_val) as (then, otherwise):
                     with then:
+                        self.symbol_table = createTable(self.symbol_table)
                         self.visit(branches[0])
+                        self.symbol_table = self.symbol_table.getFather()
                     with otherwise:
+                        self.symbol_table = createTable(self.symbol_table)
                         self.visit(branches[1])
+                        self.symbol_table = self.symbol_table.getFather()
             else:  # 只有if分支
                 with self.builder.if_then(expr_val):
+                    self.symbol_table = createTable(self.symbol_table)
                     self.visit(branches[0])
+                    self.symbol_table = self.symbol_table.getFather()
         # if ctx.children[0].getText() == 'if':
         #     cond_val, _ = self.visit(ctx.expression())
         #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
