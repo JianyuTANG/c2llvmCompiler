@@ -587,11 +587,11 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.primaryExpression())
         elif ctx.expression():
             var = self.visit(ctx.postfixExpression())
-            var = self.builder.load(var)
             index = self.visit(ctx.expression())
-            print(index.constant)
+            indices = [ir.Constant(self.INT_TYPE, 0), index]
             print(var)
-            val = self.builder.extract_value(var, index.constant)
+            ptr = self.builder.gep(ptr=var, indices=indices)
+            val = self.builder.load(ptr)
             return val
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
@@ -646,6 +646,7 @@ class ToJSVisitor(CVisitor):
         else:
             # 变量名
             val = self.symbol_table.getValue(_str)
+            val = self.builder.load(val)
             return val
 
     # def visitExpression(self, ctx: CParser.ExpressionContext):
