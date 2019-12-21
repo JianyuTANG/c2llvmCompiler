@@ -193,42 +193,175 @@ class ToJSVisitor(CVisitor):
         # # return ''
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
-        if ctx.logicalAndExpression():
-            return self.visit(ctx.logicalAndExpression())
-        if ctx.logicalOrExpression():
+        """
+        assignmentExpression
+            :   conditionalExpression
+            |   unaryExpression assignmentOperator assignmentExpression
+        :param ctx:
+        :return: 表达式的值，变量本身
+        """
+        print("assignment",ctx.getText())
+        print(ctx.children)
+        if ctx.conditionalExpression():
+            return self.visit(ctx.conditionalExpression())
+
+    def visitConditionalExpression(self, ctx:CParser.ConditionalExpressionContext):
+        """
+        conditionalExpression
+            :   logicalOrExpression ('?' expression ':' conditionalExpression)?
+        :param ctx:
+        :return:表达式的值，变量本身
+        """
+        print("conditional expression",ctx.children)
+        print("expression length",len(ctx.children))
+        if len(ctx.children)==1:
+            # 如果没有('?' expression ':' conditionalExpression)?部分
             return self.visit(ctx.logicalOrExpression())
-        else:
-            return self.visit(ctx.unaryExpression()) + ' = ' + self.visit(ctx.assignmentExpression())
+        # cond_val, _ = self.visit(ctx.logicalOrExpression())
+        # converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
+        # # TODO type cast
+        # true_val, _ = self.visit(ctx.expression())
+        # false_val, _ = self.visit(ctx.conditionalExpression())
+        # ret_pointer = self.builder.alloca(true_val.type)
+        # with self.builder.if_else(converted_cond_val) as (then, otherwise):
+        #     with then:
+        #         self.builder.store(true_val, ret_pointer)
+        #     with otherwise:
+        #         self.builder.store(false_val, ret_pointer)
+        # ret_val = self.builder.load(ret_pointer)
+        # return ret_val, None
 
     def visitLogicalAndExpression(self, ctx: CParser.LogicalAndExpressionContext):
+        """
+        logicalAndExpression
+            :   inclusiveOrExpression
+            |   logicalAndExpression '&&' inclusiveOrExpression
+            ;
+        """
+        print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
+            # 如果有多个'与'语句
             return self.visit(ctx.logicalAndExpression()) + ' && ' + self.visit(ctx.equalityExpression())
+        else:
+            print(ctx.children)
+            return self.visit(ctx.inclusiveOrExpression())
+
+    def visitInclusiveOrExpression(self, ctx:CParser.InclusiveOrExpressionContext):
+        """
+        inclusiveOrExpression
+            :   exclusiveOrExpression
+            |   inclusiveOrExpression '|' exclusiveOrExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        print("inclusiveorexpression",ctx.getText())
+        if ctx.inclusiveOrExpression():
+            # 上述第二种情况
+            return self.visit(ctx.inclusiveOrExpression())
+        else:
+            return self.visit(ctx.exclusiveOrExpression())
+
+    def visitExclusiveOrExpression(self, ctx:CParser.ExclusiveOrExpressionContext):
+        """
+        exclusiveOrExpression
+            :   andExpression
+            |   exclusiveOrExpression '^' andExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        print("exclusiveorexpression",ctx.getText())
+        if ctx.exclusiveOrExpression():
+            # 上述第二种情况
+            return self.visit(ctx.exclusiveOrExpression())
+        else:
+            return self.visit(ctx.andExpression())
+
+    def visitAndExpression(self, ctx:CParser.AndExpressionContext):
+        """
+        andExpression
+            :   equalityExpression
+            |   andExpression '&' equalityExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        print("andexpression",ctx.getText())
+        if ctx.andExpression():
+            # 上述第二种情况
+            return self.visit(ctx.andExpression())
         else:
             return self.visit(ctx.equalityExpression())
 
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
+        """
+        logicalOrExpression
+            :   logicalAndExpression
+            |   logicalOrExpression '||' logicalAndExpression
+            ;
+        """
+        print('logicalorexpression',ctx.getText())
+        print(ctx.children)
         if ctx.logicalOrExpression():
+            # 如果有多个'或'语句
             return self.visit(ctx.logicalOrExpression()) + ' || ' + self.visit(ctx.equalityExpression())
         else:
-            return self.visit(ctx.equalityExpression())
+            print("no")
+            return self.visit(ctx.logicalAndExpression())
 
     def visitEqualityExpression(self, ctx: CParser.EqualityExpressionContext):
+        """
+        equalityExpression
+            :   relationalExpression
+            |   equalityExpression '==' relationalExpression
+            |   equalityExpression '!=' relationalExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        print("equalityexprssion",ctx.getText())
+        print(ctx.children)
         if len(ctx.children) == 1:
             return self.visit(ctx.relationalExpression())
         else:
             op = ctx.children[1].getText()
-            if op == '==':
-                op = '==='
-            if op == '!=':
-                op = '!=='
-            return self.visit(ctx.equalityExpression()) + f' {op} ' + \
-                self.visit(ctx.relationalExpression())
+            print("op",op)
+            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
-        if len(ctx.children) > 1:
-            return self.visit(ctx.castExpression(0)) + ' ' + ctx.children[1].getText() + ' ' + self.visit(ctx.castExpression(1))
+        """
+        relationalExpression
+            :   shiftExpression
+            |   relationalExpression '<' shiftExpression
+            |   relationalExpression '>' shiftExpression
+            |   relationalExpression '<=' shiftExpression
+            |   relationalExpression '>=' shiftExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        rhs, rhs_ptr = self.visit(ctx.children[-1])
+        if len(ctx.children) == 1:
+            return rhs, rhs_ptr
         else:
-            return self.visit(ctx.castExpression(0))
+            lhs, _ = self.visit(ctx.children[0])
+            op = ctx.children[1].getText()
+            converted_target = lhs.type
+            if type(lhs.type) == ir.PointerType and type(rhs.type) == ir.IntType:
+                converted_target = self.INT_TYPE
+                converted_rhs = rhs
+                #lhs = TinyCTypes.cast_type(self.builder, value=lhs, target_type=self.INT_TYPE, ctx=ctx)
+            else:
+                pass
+                #converted_rhs = TinyCTypes.cast_type(self.builder, value=rhs, target_type=converted_target, ctx=ctx)
+            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
+            # if TinyCTypes.is_int(converted_target):
+            #     return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
+            # elif TinyCTypes.is_float(converted_target):
+            #     return self.builder.fcmp_ordered(cmpop=op, lhs=lhs, rhs=converted_rhs), None
+            # else:
+            #     raise SemanticError(ctx=ctx, msg="Unknown relation expression: " + str(lhs) + str(op) + str(rhs))
 
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         if ctx.unaryExpression():
@@ -267,8 +400,8 @@ class ToJSVisitor(CVisitor):
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         return ctx.children[0].getText()
 
-    def visitExpression(self, ctx: CParser.ExpressionContext):
-        return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
+    # def visitExpression(self, ctx: CParser.ExpressionContext):
+    #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitCompoundStatement(self, ctx):
         for i in ctx.children[1:-1]:
@@ -315,13 +448,16 @@ class ToJSVisitor(CVisitor):
         if isinstance(ctx.children[0], CParser.ExpressionContext):
             return self.visit(ctx.children[0]) + ';'
         txt = ctx.children[0].getText()
-        if txt == 'if':
-            if_statements = f'if({self.visit(ctx.expression())})' + \
-                self.visit(ctx.statement(0))
-            else_statement = ''
-            if len(ctx.children) > 5:
-                else_statement = '\nelse' + self.visit(ctx.statement(1))
-            return if_statements + else_statement
+        if ctx.selectionStatement():
+            print(ctx.getText())
+            return self.visit(ctx.selectionStatement())
+        # if txt == 'if':
+        #     if_statements = f'if({self.visit(ctx.expression())})' + \
+        #         self.visit(ctx.statement(0))
+        #     else_statement = ''
+        #     if len(ctx.children) > 5:
+        #         else_statement = '\nelse' + self.visit(ctx.statement(1))
+        #     return if_statements + else_statement
         if txt == 'while':
             return f'while({self.visit(ctx.expression())})' + self.visit(ctx.statement(0))
         if txt == 'for':
@@ -341,6 +477,83 @@ class ToJSVisitor(CVisitor):
                 expression = self.visit(ctx.expression())
             return f'return {expression};'
         return ctx.getText()
+
+    def visitSelectionStatement(self, ctx:CParser.SelectionStatementContext):
+        """
+        selectionStatement
+            :   'if' '(' expression ')' statement ('else' statement)?
+            |   'switch' '(' expression ')' statement
+            ;
+        :param ctx:
+        :return:
+        """
+        print("selection",ctx.children)
+        if ctx.children[0].getText()=='if':
+            print(ctx.statement()[0].getText())
+            print(ctx.statement()[1].getText())
+            print(ctx.expression().getText())
+            cond_val, _ = self.visit(ctx.expression())
+            print("lll",cond_val,_)
+            branches=ctx.statement()
+            if len(branches) == 2:  # 存在else if/else语句
+                with self.builder.if_else(converted_cond_val) as (then, otherwise):
+                    with then:
+                        self.visit(statements[0])
+                    with otherwise:
+                        self.visit(statements[1])
+            else:  # 只有if分支
+                with self.builder.if_then(converted_cond_val):
+                    self.visit(statements[0])
+        # if ctx.children[0].getText() == 'if':
+        #     cond_val, _ = self.visit(ctx.expression())
+        #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
+        #     statements = ctx.statement()
+        #     self.symbol_table.enter_scope()
+        #     if len(statements) == 2:  # 存在else分支
+        #         with self.builder.if_else(converted_cond_val) as (then, otherwise):
+        #             with then:
+        #                 self.visit(statements[0])
+        #             with otherwise:
+        #                 self.visit(statements[1])
+        #     else:  # 只有if分支
+        #         with self.builder.if_then(converted_cond_val):
+        #             self.visit(statements[0])
+        #     self.symbol_table.exit_scope()
+        # else:
+        #     name_prefix = self.builder.block.name
+        #     start_block = self.builder.block
+        #     end_block = self.builder.append_basic_block(name=name_prefix + '.end_switch')
+        #     old_context = self.switch_context
+        #     old_break = self.break_block
+        #     self.break_block = end_block
+        #     cond_val, _ = self.visit(ctx.expression())
+        #     self.switch_context = [[], None, name_prefix + '.case.']
+        #     self.visit(ctx.statement(0))
+        #     try:
+        #         self.builder.branch(end_block)
+        #     except AssertionError:
+        #         # 最后一个标签里有break或return语句，不用跳转
+        #         pass
+        #     label_blocks = []
+        #     for i in range(len(self.switch_context[0])):
+        #         label_blocks.append(self.builder.append_basic_block(name=name_prefix + '.label.' + str(i)))
+        #     self.builder.position_at_end(start_block)
+        #     self.builder.branch(label_blocks[0])
+        #     for i, (label, _block) in enumerate(self.switch_context[0]):
+        #         self.builder.position_at_end(label_blocks[i])
+        #         if isinstance(label, str):
+        #             self.builder.branch(_block)
+        #         else:
+        #             constant, _ = self.visit(label)
+        #             condition = self.builder.icmp_signed(cmpop='==', lhs=cond_val, rhs=constant)
+        #             if i == len(self.switch_context[0]) - 1:
+        #                 false_block = end_block
+        #             else:
+        #                 false_block = label_blocks[i + 1]
+        #             self.builder.cbranch(condition, _block, false_block)
+        #     self.builder.position_at_start(end_block)
+        #     self.switch_context = old_context
+        #     self.break_block = old_break
 
     def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
         return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
