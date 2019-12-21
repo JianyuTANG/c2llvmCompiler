@@ -330,15 +330,15 @@ class ToJSVisitor(CVisitor):
         print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
-            lhs, _ = self.visit(ctx.logicalOrExpression())
+            lhs = self.visit(ctx.logicalOrExpression())
             result = self.builder.alloca(self.BOOL_TYPE)
             with self.builder.if_else(lhs) as (then, otherwise):
                 with then:
                     self.builder.store(self.BOOL_TYPE(1), result)
                 with otherwise:
-                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    rhs = self.visit(ctx.logicalAndExpression())
                     self.builder.store(rhs, result)
-            return self.builder.load(result), None
+            return self.builder.load(result)
         else:
             print(ctx.children)
             return self.visit(ctx.inclusiveOrExpression())
@@ -402,16 +402,16 @@ class ToJSVisitor(CVisitor):
         print(ctx.children)
         if ctx.logicalOrExpression():
             # 如果有多个'或'语句
-            lhs, _ = self.visit(ctx.logicalOrExpression())
+            lhs = self.visit(ctx.logicalOrExpression())
             result = self.builder.alloca(self.BOOL_TYPE)
             # 如果第一个logicalandexpression返回否才继续，否则直接返回真
             with self.builder.if_else(lhs) as (then, otherwise):
                 with then:
                     self.builder.store(self.BOOL_TYPE(1), result)
                 with otherwise:
-                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    rhs = self.visit(ctx.logicalAndExpression())
                     self.builder.store(rhs, result)
-            return self.builder.load(result), None
+            return self.builder.load(result)
         else:
             print("no")
             return self.visit(ctx.logicalAndExpression())
@@ -438,7 +438,7 @@ class ToJSVisitor(CVisitor):
             # self.builder.store(self.INT_TYPE(33),lhs)
             lhs = self.visit(ctx.equalityExpression())
             rhs=self.visit(ctx.relationalExpression())
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
+            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         """
@@ -456,14 +456,14 @@ class ToJSVisitor(CVisitor):
         if len(ctx.children) == 1:
             return self.visit(ctx.shiftExpression())
         else:
-            lhs, _ = self.visit(ctx.relationalExpression())
-            rhs, _ = self.visit(ctx.shiftExpression())
+            lhs = self.visit(ctx.relationalExpression())
+            rhs = self.visit(ctx.shiftExpression())
             op = ctx.children[1].getText()
             converted_target = lhs.type
             if rhs.type == self.INT_TYPE or rhs.type==self.CHAR_TYPE:
-                return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
+                return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
             elif rhs.type==self.FLOAT_TYPE:
-                return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
+                return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
             else:
                 print("unknown type")
 
@@ -577,16 +577,19 @@ class ToJSVisitor(CVisitor):
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.While():
             block_name = self.builder.block.name
-            loop_block = self.builder.append_basic_block(name='{}_loop'.format(block_name))
+            loop_block = self.builder.append_basic_block(name='{}.loop'.format(block_name))
             # continue_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
-            end_block = self.builder.append_basic_block(name='{}_continue'.format(block_name))
+            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
+            self.builder.branch(loop_block)
             self.builder.position_at_start(loop_block)
             expression = self.visit(ctx.expression())
-            with self.builder.if_else(expression) as (then, otherwise):
-                with then:
-                    self.builder.branch(loop_block)
-                with otherwise:
-                    self.builder.branch(end_block)
+            self.builder.cbranch(expression, loop_block, end_block)
+            self.visit(ctx.statement())
+            # with self.builder.if_else(expression) as (then, otherwise):
+            #     with then:
+            #         self.builder.branch(loop_block)
+            #     with otherwise:
+            #         self.builder.branch(end_block)
             self.builder.position_at_start(end_block)
         elif ctx.Do():
             pass
@@ -640,8 +643,8 @@ class ToJSVisitor(CVisitor):
             # print(ctx.statement()[0].getText())
             # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
-            expr_val, _ = self.visit(ctx.expression())
-            print("expression result:", expr_val, _)
+            expr_val = self.visit(ctx.expression())
+            print("expression result:", expr_val)
             branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
                 with self.builder.if_else(expr_val) as (then, otherwise):
