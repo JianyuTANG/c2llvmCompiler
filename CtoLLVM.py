@@ -35,6 +35,7 @@ class ToJSVisitor(CVisitor):
 
         # Create an empty module...
         self.module = ir.Module()
+        self.builder = None
         self.symbol_table = SymbolTable(None)
         self.lst_continue = None
         self.lst_break = None
@@ -215,33 +216,46 @@ class ToJSVisitor(CVisitor):
                 # 数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
-                temp = self.builder.alloca(arr_type, name=name)
-                if init_val:
-                    # 有初值
-                    l = len(init_val)
-                    if l > length.constant:
-                        # 数组过大
-                        return
-                    # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
-                    for i in range(l):
-                        indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                        ptr = self.builder.gep(ptr=temp, indices=indices)
-                        self.builder.store(init_val[i], ptr)
-                    # print(temp)
-                    # ptrs = self.builder.gep(ptr=temp, indices=indices)
-                    # print(ptrs.type)
-                    # for seq, ptr in enumerate(ptrs):
-                    #     self.builder.store(init_val[seq], ptr)
-                    # for seq, val in enumerate(init_val):
-                    #     print(val)
-                    #     self.builder.insert_value(arr, val, seq)
+                if self.builder:
+                    temp = self.builder.alloca(arr_type, name=name)
+                    if init_val:
+                        # 有初值
+                        l = len(init_val)
+                        if l > length.constant:
+                            # 数组过大
+                            return
+                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                        for i in range(l):
+                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                            ptr = self.builder.gep(ptr=temp, indices=indices)
+                            self.builder.store(init_val[i], ptr)
+                else:
+                    temp = ir.GlobalValue(self.module, arr_type, name=name)
+                    if init_val:
+                        # 有初值
+                        l = len(init_val)
+                        if l > length.constant:
+                            # 数组过大
+                            return
+                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                        for i in range(l):
+                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                            ptr = self.builder.gep(ptr=temp, indices=indices)
+                            self.builder.store(init_val[i], ptr)
+
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
             else:
                 # 普通变量
-                temp = self.builder.alloca(_type, size=1, name=name)
-                if init_val:
-                    self.builder.store(init_val, temp)
+                if self.builder:
+                    temp = self.builder.alloca(_type, size=1, name=name)
+                    if init_val:
+                        self.builder.store(init_val, temp)
+                else:
+                    temp = ir.GlobalValue(self.module, _type, name=name)
+                    if init_val:
+                        temp.store(value=init_val, ptr=temp)
+
                 # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
