@@ -219,17 +219,19 @@ class ToJSVisitor(CVisitor):
                 if init_val:
                     # 有初值
                     l = len(init_val)
-                    print(length.constant)
                     if l > length.constant:
                         # 数组过大
                         return
-                    indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
-                    # indices = [i for i in range(l)]
-                    print(temp.type)
-                    print(self.symbol_table.getValue('main'))
-                    ptrs = self.builder.gep(temp, indices=indices)
-                    for seq, ptr in enumerate(ptrs):
-                        self.builder.store(init_val[seq], ptr)
+                    # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
+                    for i in range(l):
+                        indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                        ptr = self.builder.gep(ptr=temp, indices=indices)
+                        self.builder.store(init_val[i], ptr)
+                    # print(temp)
+                    # ptrs = self.builder.gep(ptr=temp, indices=indices)
+                    # print(ptrs.type)
+                    # for seq, ptr in enumerate(ptrs):
+                    #     self.builder.store(init_val[seq], ptr)
                     # for seq, val in enumerate(init_val):
                     #     print(val)
                     #     self.builder.insert_value(arr, val, seq)
@@ -538,7 +540,6 @@ class ToJSVisitor(CVisitor):
             print(index.constant)
             print(var)
             val = self.builder.extract_value(var, index.constant)
-            print(val.constant)
             return val
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
