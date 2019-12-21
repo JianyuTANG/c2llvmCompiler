@@ -5,7 +5,7 @@ from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
 from llvmlite import ir
 import re
-from SymbolTable import SymbolTable, ArrayType, BasicType
+from SymbolTable import *
 
 
 def addIndentation(a, num=2):
@@ -54,6 +54,13 @@ class ToJSVisitor(CVisitor):
         # return '\n'.join(ans) # + '\nmain();\n'
 
     def visitFunctionDefinition(self, ctx):
+        '''
+        functionDefinition
+        :   declarationSpecifiers? declarator declarationList? compoundStatement
+        ;
+        :param ctx:
+        :return:
+        '''
         assert ctx.declarationList() == None
         _type = self.visit(ctx.declarationSpecifiers())
         # self.visit(ctx.declarator())
@@ -63,11 +70,17 @@ class ToJSVisitor(CVisitor):
         func = ir.Function(self.module, fnty, name=name)
         block = func.append_basic_block(name="entry")
         self.builder = ir.IRBuilder(block)
+        self.symbol_table = createTable(self.symbol_table)
+        func_args = func.args
+        arg_names = [j for i, j in params]
+        assert len(arg_names) == len(func_args)
+        for seq, name in enumerate(arg_names):
+            arg = func_args[seq]
+            arg_ptr = self.builder.alloca(arg.type, name=name)
+            self.builder.store(arg, arg_ptr)
+            self.symbol_table.insert(name, value=arg_ptr)
         self.visit(ctx.compoundStatement())
-        # ans = 'function'
-        # ans += ' ' + self.visit(ctx.declarator())
-        # ans += ' ' + self.visit(ctx.compoundStatement())
-        # return ans
+
 
     # def visitDeclarationSpecifiers(self, ctx):
     #     if ctx.CONST():
@@ -419,11 +432,21 @@ class ToJSVisitor(CVisitor):
             else:
                 print("unknown type")
 
-    # def visitCastExpression(self, ctx: CParser.CastExpressionContext):
-    #     if ctx.unaryExpression():
-    #         return self.visit(ctx.unaryExpression())
-    #     else:
-    #         return ' '.join([self.visit(x) for x in ctx.children])
+    def visitShiftExpression(self, ctx:CParser.ShiftExpressionContext):
+        """
+        shiftExpression
+            :   additiveExpression
+            |   shiftExpression '<<' additiveExpression
+            |   shiftExpression '>>' additiveExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        if len(ctx.children) == 1:
+            return self.visit(ctx.additiveExpression())
+        else:
+            print("you can't do that")
+
 
     def visitUnaryExpression(self, ctx: CParser.UnaryExpressionContext):
         if len(ctx.children) > 1:
