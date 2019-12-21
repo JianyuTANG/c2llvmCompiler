@@ -256,10 +256,23 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return: 表达式的值，变量本身
         """
-        print("assignment",ctx.getText())
+        print("assignment expression:",ctx.getText())
         print(ctx.children)
         if ctx.conditionalExpression():
+            print("into conditional")
             return self.visit(ctx.conditionalExpression())
+        elif ctx.unaryExpression():
+            lhs=self.visit(ctx.unaryExpression())
+            op_=self.visit(ctx.assignmentOperator())
+            value_=self.visit(ctx.assignmentExpression())
+            return {
+                '=':self.builder.store(value_,lhs),
+            }.get(op_)
+
+    def visitAssignmentOperator(self, ctx:CParser.AssignmentOperatorContext):
+        print("assignment operator:",ctx.getText())
+        return (ctx.getText())
+
 
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
         val = self.visit(ctx.unaryExpression())
@@ -331,13 +344,13 @@ class ToJSVisitor(CVisitor):
         print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
-            lhs, _ = self.visit(ctx.logicalOrExpression())
+            lhs = self.visit(ctx.logicalOrExpression())
             result = self.builder.alloca(self.BOOL_TYPE)
             with self.builder.if_else(lhs) as (then, otherwise):
                 with then:
                     self.builder.store(self.BOOL_TYPE(1), result)
                 with otherwise:
-                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    rhs = self.visit(ctx.logicalAndExpression())
                     self.builder.store(rhs, result)
             return self.builder.load(result), None
         else:
@@ -403,14 +416,14 @@ class ToJSVisitor(CVisitor):
         print(ctx.children)
         if ctx.logicalOrExpression():
             # 如果有多个'或'语句
-            lhs, _ = self.visit(ctx.logicalOrExpression())
+            lhs= self.visit(ctx.logicalOrExpression())
             result = self.builder.alloca(self.BOOL_TYPE)
             # 如果第一个logicalandexpression返回否才继续，否则直接返回真
             with self.builder.if_else(lhs) as (then, otherwise):
                 with then:
                     self.builder.store(self.BOOL_TYPE(1), result)
                 with otherwise:
-                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    rhs= self.visit(ctx.logicalAndExpression())
                     self.builder.store(rhs, result)
             return self.builder.load(result), None
         else:
@@ -454,11 +467,13 @@ class ToJSVisitor(CVisitor):
         :return:
         """
         # rhs, rhs_ptr = self.visit(ctx.children[-1])
+        print("relational expression",ctx.getText())
         if len(ctx.children) == 1:
             return self.visit(ctx.shiftExpression())
         else:
-            lhs, _ = self.visit(ctx.relationalExpression())
-            rhs, _ = self.visit(ctx.shiftExpression())
+            lhs= self.visit(ctx.relationalExpression())
+            print("bbb")
+            rhs = self.visit(ctx.shiftExpression())
             op = ctx.children[1].getText()
             converted_target = lhs.type
             if rhs.type == self.INT_TYPE or rhs.type==self.CHAR_TYPE:
