@@ -21,6 +21,7 @@ class ToJSVisitor(CVisitor):
     FLOAT_TYPE = ir.FloatType()
     DOUBLE_TYPE = ir.DoubleType()
     VOID_TYPE = ir.VoidType()
+    BOOL_TYPE=ir.IntType(1)
 
     def __init__(self):
         # Create some useful types
@@ -241,7 +242,15 @@ class ToJSVisitor(CVisitor):
         print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
-            return self.visit(ctx.logicalAndExpression()) + ' && ' + self.visit(ctx.equalityExpression())
+            lhs, _ = self.visit(ctx.logicalOrExpression())
+            result = self.builder.alloca(self.BOOL_TYPE)
+            with self.builder.if_else(lhs) as (then, otherwise):
+                with then:
+                    self.builder.store(self.BOOL_TYPE(1), result)
+                with otherwise:
+                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    self.builder.store(rhs, result)
+            return self.builder.load(result), None
         else:
             print(ctx.children)
             return self.visit(ctx.inclusiveOrExpression())
@@ -305,7 +314,16 @@ class ToJSVisitor(CVisitor):
         print(ctx.children)
         if ctx.logicalOrExpression():
             # 如果有多个'或'语句
-            return self.visit(ctx.logicalOrExpression()) + ' || ' + self.visit(ctx.equalityExpression())
+            lhs, _ = self.visit(ctx.logicalOrExpression())
+            result = self.builder.alloca(self.BOOL_TYPE)
+            # 如果第一个logicalandexpression返回否才继续，否则直接返回真
+            with self.builder.if_else(lhs) as (then, otherwise):
+                with then:
+                    self.builder.store(self.BOOL_TYPE(1), result)
+                with otherwise:
+                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    self.builder.store(rhs, result)
+            return self.builder.load(result), None
         else:
             print("no")
             return self.visit(ctx.logicalAndExpression())
@@ -327,7 +345,12 @@ class ToJSVisitor(CVisitor):
         else:
             op = ctx.children[1].getText()
             print("op",op)
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
+            # rhs=ir.Constant(self.INT_TYPE,ctx.children[2].getText())
+            # lhs=self.builder.alloca(self.INT_TYPE)
+            # self.builder.store(self.INT_TYPE(33),lhs)
+            lhs = self.visit(ctx.equalityExpression())
+            rhs=self.visit(ctx.relationalExpression())
+            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         """
@@ -341,27 +364,20 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        rhs, rhs_ptr = self.visit(ctx.children[-1])
+        # rhs, rhs_ptr = self.visit(ctx.children[-1])
         if len(ctx.children) == 1:
-            return rhs, rhs_ptr
+            return self.visit(ctx.shiftExpression())
         else:
-            lhs, _ = self.visit(ctx.children[0])
+            lhs, _ = self.visit(ctx.relationalExpression())
+            rhs, _ = self.visit(ctx.shiftExpression())
             op = ctx.children[1].getText()
             converted_target = lhs.type
-            if type(lhs.type) == ir.PointerType and type(rhs.type) == ir.IntType:
-                converted_target = self.INT_TYPE
-                converted_rhs = rhs
-                #lhs = TinyCTypes.cast_type(self.builder, value=lhs, target_type=self.INT_TYPE, ctx=ctx)
+            if rhs.type == self.INT_TYPE or rhs.type==self.CHAR_TYPE:
+                return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
+            elif rhs.type==self.FLOAT_TYPE:
+                return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
             else:
-                pass
-                #converted_rhs = TinyCTypes.cast_type(self.builder, value=rhs, target_type=converted_target, ctx=ctx)
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # if TinyCTypes.is_int(converted_target):
-            #     return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # elif TinyCTypes.is_float(converted_target):
-            #     return self.builder.fcmp_ordered(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # else:
-            #     raise SemanticError(ctx=ctx, msg="Unknown relation expression: " + str(lhs) + str(op) + str(rhs))
+                print("unknown type")
 
     def visitCastExpression(self, ctx: CParser.CastExpressionContext):
         if ctx.unaryExpression():
@@ -492,18 +508,18 @@ class ToJSVisitor(CVisitor):
             print(ctx.statement()[0].getText())
             print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
-            cond_val, _ = self.visit(ctx.expression())
-            print("lll",cond_val,_)
+            expr_val, _ = self.visit(ctx.expression())
+            print("expression result:",expr_val,_)
             branches=ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
-                with self.builder.if_else(converted_cond_val) as (then, otherwise):
+                with self.builder.if_else(expr_val) as (then, otherwise):
                     with then:
-                        self.visit(statements[0])
+                        self.visit(branches[0])
                     with otherwise:
-                        self.visit(statements[1])
+                        self.visit(branches[1])
             else:  # 只有if分支
-                with self.builder.if_then(converted_cond_val):
-                    self.visit(statements[0])
+                with self.builder.if_then(expr_val):
+                    self.visit(branches[0])
         # if ctx.children[0].getText() == 'if':
         #     cond_val, _ = self.visit(ctx.expression())
         #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
