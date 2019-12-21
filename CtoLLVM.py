@@ -5,6 +5,7 @@ from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
 from llvmlite import ir
 import re
+from SymbolTable import SymbolTable, ArrayType, BasicType
 
 
 def addIndentation(a, num=2):
@@ -21,6 +22,7 @@ class ToJSVisitor(CVisitor):
     FLOAT_TYPE = ir.FloatType()
     DOUBLE_TYPE = ir.DoubleType()
     VOID_TYPE = ir.VoidType()
+    BOOL_TYPE=ir.IntType(1)
 
     def __init__(self):
         # Create some useful types
@@ -29,6 +31,7 @@ class ToJSVisitor(CVisitor):
 
         # Create an empty module...
         self.module = ir.Module()
+        self.symbol_table = SymbolTable(None)
         # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
         # self.func = ir.Function(self.module, self.fnty, name="fpadd")
@@ -88,39 +91,35 @@ class ToJSVisitor(CVisitor):
                     如果变量是数组ARRAY_TYPE，会返回数组范围列表
                     如果变量是普通类型BASE_TYPE,会返回一个空列表
         """
-        # if ctx.Identifier():
-        #     # Identifier 普通变量名
-        #     return ctx.getText(), self.current_type, []
-        # elif ctx.children[0].Identifier():
-        #     if ctx.children[1].getText() == '[':
-        #         # 数组
-        #         name, tp, sz = self.visitDirectDeclarator(
-        #             ctx.directDeclarator())
-        #         tp = ir.PointerType(tp)
-        #         if ctx.children[2].getText() == ']':
-        #             # 形如 a[] 实际上是指针
-        #             return name, tp, sz
-        #         else:
-        #             try:
-        #                 length = int(ctx.assignmentExpression().getText())
-        #             except:
-        #                 # ERROR
-        #                 return
-        #             if length <= 0:
-        #                 # ERROR
-        #                 return
-        #             sz.append(length)
-        #             return name, tp, sz
         if ctx.Identifier():
-            return ctx.getText()
-
-        if ctx.LeftParen().getText() == '(':
+            name = self.visit(ctx.Identifier())
+            btype = (self.BASE_TYPE, None)
+            self.symbol_table.insert(name, btype)
+            return name
+        elif ctx.children[1].getText() == '[':
+            name = self.visit(ctx.directDeclarator())
+            if ctx.assignmentExpression():
+                length = self.visit(ctx.assignmentExpression())
+                btype = (self.ARRAY_TYPE, length)
+            else:
+                pass
+            self.symbol_table.insert(name, btype=btype)
+            return name
+        elif ctx.children[1].getText() == '(':
             name = self.visit(ctx.directDeclarator())
             if ctx.parameterTypeList():
                 params = self.visit(ctx.parameterTypeList())
             else:
                 params = []
             return name, params
+
+        # if ctx.Identifier():
+        #     return ctx.getText()
+        #
+        # if ctx.LeftParen().getText() == '(':
+        #     name = self.visit(ctx.directDeclarator())
+        #     params = self.visit(ctx.parameterTypeList())
+        #     return name, params
             # 函数声明
             # name, ret_tp, pms = self.visitDirectDeclarator(
             #     ctx.directDeclarator())
@@ -169,25 +168,34 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.children[-1])
 
     def visitDeclaration(self, ctx):
-        # if isinstance(ctx.initDeclaratorList().initDeclarator(0).declarator(), CParser.FunctionDefinitionOrDeclarationContext):
-        #     # there is no function declaration in JS
-        #     return
-        # _specifier
-
-        # .declarationSpecifier()[-1].getText()
         _type = self.visit(ctx.declarationSpecifiers())
-        # print("here",ctx.children)
-        rtn_ = self.visit(ctx.initDeclaratorList())
-        len_ = len(rtn_)
-        # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
-        if len_ == 2:
-            name_, val_ = rtn_[0], rtn_[1]
-            new_int_ = self.builder.alloca(_type, name=name_)
-            self.builder.store(_type(val_), new_int_)
-        elif len_ == 1:
-            name_ = rtn_
-            new_int_ = self.builder.alloca(_type, name=name_)
-        # return ''
+        declarator_list = self.visit(ctx.initDeclaratorList())
+        for name, init_val in declarator_list:
+            _type2 = self.symbol_table.getType(name)
+            if _type2[0] == self.ARRAY_TYPE:
+                # 数组类型
+                length = _type2[1]
+            else:
+                # 普通变量
+                length = 1
+            temp = self.builder.alloca(_type, size=length, name=name)
+            if init_val:
+                self.builder.store(init_val, temp)
+            # 保存指针
+            self.symbol_table.insert(name, btype=_type2, value=temp)
+
+
+        # rtn_ = self.visit(ctx.initDeclaratorList())
+        # len_ = len(rtn_)
+        # # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
+        # if len_ == 2:
+        #     name_, val_ = rtn_[0], rtn_[1]
+        #     new_int_ = self.builder.alloca(_type, name=name_)
+        #     self.builder.store(_type(val_), new_int_)
+        # elif len_ == 1:
+        #     name_ = rtn_
+        #     new_int_ = self.builder.alloca(_type, name=name_)
+        # # return ''
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         """
@@ -274,7 +282,15 @@ class ToJSVisitor(CVisitor):
         print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
-            return self.visit(ctx.logicalAndExpression()) + ' && ' + self.visit(ctx.equalityExpression())
+            lhs, _ = self.visit(ctx.logicalOrExpression())
+            result = self.builder.alloca(self.BOOL_TYPE)
+            with self.builder.if_else(lhs) as (then, otherwise):
+                with then:
+                    self.builder.store(self.BOOL_TYPE(1), result)
+                with otherwise:
+                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    self.builder.store(rhs, result)
+            return self.builder.load(result), None
         else:
             print(ctx.children)
             return self.visit(ctx.inclusiveOrExpression())
@@ -338,7 +354,16 @@ class ToJSVisitor(CVisitor):
         print(ctx.children)
         if ctx.logicalOrExpression():
             # 如果有多个'或'语句
-            return self.visit(ctx.logicalOrExpression()) + ' || ' + self.visit(ctx.equalityExpression())
+            lhs, _ = self.visit(ctx.logicalOrExpression())
+            result = self.builder.alloca(self.BOOL_TYPE)
+            # 如果第一个logicalandexpression返回否才继续，否则直接返回真
+            with self.builder.if_else(lhs) as (then, otherwise):
+                with then:
+                    self.builder.store(self.BOOL_TYPE(1), result)
+                with otherwise:
+                    rhs, rhs_ptr = self.visit(ctx.logicalAndExpression())
+                    self.builder.store(rhs, result)
+            return self.builder.load(result), None
         else:
             print("no")
             return self.visit(ctx.logicalAndExpression())
@@ -360,7 +385,12 @@ class ToJSVisitor(CVisitor):
         else:
             op = ctx.children[1].getText()
             print("op",op)
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
+            # rhs=ir.Constant(self.INT_TYPE,ctx.children[2].getText())
+            # lhs=self.builder.alloca(self.INT_TYPE)
+            # self.builder.store(self.INT_TYPE(33),lhs)
+            lhs = self.visit(ctx.equalityExpression())
+            rhs=self.visit(ctx.relationalExpression())
+            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
 
     def visitRelationalExpression(self, ctx: CParser.RelationalExpressionContext):
         """
@@ -374,27 +404,20 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        rhs, rhs_ptr = self.visit(ctx.children[-1])
+        # rhs, rhs_ptr = self.visit(ctx.children[-1])
         if len(ctx.children) == 1:
-            return rhs, rhs_ptr
+            return self.visit(ctx.shiftExpression())
         else:
-            lhs, _ = self.visit(ctx.children[0])
+            lhs, _ = self.visit(ctx.relationalExpression())
+            rhs, _ = self.visit(ctx.shiftExpression())
             op = ctx.children[1].getText()
             converted_target = lhs.type
-            if type(lhs.type) == ir.PointerType and type(rhs.type) == ir.IntType:
-                converted_target = self.INT_TYPE
-                converted_rhs = rhs
-                #lhs = TinyCTypes.cast_type(self.builder, value=lhs, target_type=self.INT_TYPE, ctx=ctx)
+            if rhs.type == self.INT_TYPE or rhs.type==self.CHAR_TYPE:
+                return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
+            elif rhs.type==self.FLOAT_TYPE:
+                return self.builder.fcmp_signed(cmpop=op, lhs=lhs, rhs=rhs), None
             else:
-                pass
-                #converted_rhs = TinyCTypes.cast_type(self.builder, value=rhs, target_type=converted_target, ctx=ctx)
-            return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # if TinyCTypes.is_int(converted_target):
-            #     return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # elif TinyCTypes.is_float(converted_target):
-            #     return self.builder.fcmp_ordered(cmpop=op, lhs=lhs, rhs=converted_rhs), None
-            # else:
-            #     raise SemanticError(ctx=ctx, msg="Unknown relation expression: " + str(lhs) + str(op) + str(rhs))
+                print("unknown type")
 
     # def visitCastExpression(self, ctx: CParser.CastExpressionContext):
     #     if ctx.unaryExpression():
@@ -447,15 +470,26 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.declaration())
 
     def visitInitDeclaratorList(self, ctx):
-        print("text", ctx.getText())
-        return self.visit(ctx.initDeclarator())
+        declarator_list = []
+        declarator_list.append(self.visit(ctx.initDeclarator()))
+        if ctx.initDeclaratorList():
+            declarator_list += self.visit(ctx.initDeclaratorList())
+        return declarator_list
+
+        # print("text", ctx.getText())
+        # return self.visit(ctx.initDeclarator())
 
     def visitInitDeclarator(self, ctx):
         if ctx.initializer():
-            # 如果有赋值语句，就返回值和变量名；否则只返回变量名
-            _initializer = self.visit(ctx.initializer())
-            return ctx.declarator().getText(), _initializer
-        return ctx.declarator().getText()
+            declarator = (self.visit(ctx.declarator()), self.visit(ctx.initializer()))
+        else:
+            declarator = (self.visit(ctx.declarator()), None)
+        return declarator
+
+        # if ctx.initializer():
+        #     # 如果有赋值语句，就返回值和变量名；否则只返回变量名
+        #     return ctx.declarator().getText(), ctx.initializer().getText()
+        # return ctx.declarator().getText()
 
     def visitInitializer(self, ctx):
         if ctx.assignmentExpression():
@@ -525,18 +559,18 @@ class ToJSVisitor(CVisitor):
             print(ctx.statement()[0].getText())
             print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
-            cond_val, _ = self.visit(ctx.expression())
-            print("lll",cond_val,_)
+            expr_val, _ = self.visit(ctx.expression())
+            print("expression result:",expr_val,_)
             branches=ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
-                with self.builder.if_else(converted_cond_val) as (then, otherwise):
+                with self.builder.if_else(expr_val) as (then, otherwise):
                     with then:
-                        self.visit(statements[0])
+                        self.visit(branches[0])
                     with otherwise:
-                        self.visit(statements[1])
+                        self.visit(branches[1])
             else:  # 只有if分支
-                with self.builder.if_then(converted_cond_val):
-                    self.visit(statements[0])
+                with self.builder.if_then(expr_val):
+                    self.visit(branches[0])
         # if ctx.children[0].getText() == 'if':
         #     cond_val, _ = self.visit(ctx.expression())
         #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
