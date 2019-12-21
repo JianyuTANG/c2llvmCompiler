@@ -250,7 +250,6 @@ class ToJSVisitor(CVisitor):
         return val
 
 
-
     def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
         _cast = self.visit(ctx.castExpression())
         if ctx.multiplicativeExpression():
@@ -563,16 +562,15 @@ class ToJSVisitor(CVisitor):
             block_name = self.builder.block.name
             loop_block = self.builder.append_basic_block(name='{}_loop'.format(block_name))
             # continue_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
-            break_block = self.builder.append_basic_block(name='{}_comtinue'.format(block_name))
+            end_block = self.builder.append_basic_block(name='{}_continue'.format(block_name))
             self.builder.position_at_start(loop_block)
             expression = self.visit(ctx.expression())
             with self.builder.if_else(expression) as (then, otherwise):
                 with then:
-                    pass
+                    self.builder.branch(loop_block)
                 with otherwise:
-                    pass
-
-            pass
+                    self.builder.branch(end_block)
+            self.builder.position_at_start(end_block)
         elif ctx.Do():
             pass
         elif ctx.For():
