@@ -93,6 +93,12 @@ class ToJSVisitor(CVisitor):
             self.builder.store(arg, arg_ptr)
             self.symbol_table.insert(name, value=arg_ptr)
         self.visit(ctx.compoundStatement())
+        if _type == self.VOID_TYPE:
+            try:
+                self.builder.ret_void()
+            except:
+                pass
+
         # 退回父符号表
         self.symbol_table = self.symbol_table.getFather()
 
@@ -544,9 +550,10 @@ class ToJSVisitor(CVisitor):
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
         if ctx.unaryExpression():
             val, pt = self.visit(ctx.unaryExpression())
-            if pt:
+            if pt is True:
                 pt = val
                 val = self.builder.load(val)
+
             return val, pt
 
         if ctx.typeName():
@@ -574,6 +581,28 @@ class ToJSVisitor(CVisitor):
                 pt = val
                 val = self.builder.load(pt)
                 return val, pt
+        
+        if ctx.PlusPlus():
+            val, pt = self.visit(ctx.unaryExpression())
+            if pt:
+                pt = val
+                val = self.builder.load(pt)
+                new_val = self.builder.add(val, ir.Constant(self.INT_TYPE, 1))
+                self.builder.store(new_val, pt)
+                return new_val, pt
+            else:
+                raise Exception()
+        
+        if ctx.MinusMinus():
+            val, pt = self.visit(ctx.unaryExpression())
+            if pt:
+                pt = val
+                val = self.builder.load(pt)
+                new_val = self.builder.add(val, ir.Constant(self.INT_TYPE, -1))
+                self.builder.store(new_val, pt)
+                return new_val, pt
+            else:
+                raise Exception()
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
         """
@@ -762,11 +791,11 @@ class ToJSVisitor(CVisitor):
 
     def visitIterationStatement(self, ctx:CParser.IterationStatementContext):
         if ctx.While():
-            # block_name = self.builder.block.name
+            block_name = self.builder.block.name
             self.symbol_table = createTable(self.symbol_table)
-            init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
-            do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
-            end_block = self.builder.append_basic_block()#(name='{}.loop_end'.format(block_name))
+            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
+            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
+            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
             lst_continue, lst_break = self.lst_continue, self.lst_break
             self.lst_continue, self.lst_break = init_block, end_block
             self.builder.branch(init_block)
@@ -787,11 +816,12 @@ class ToJSVisitor(CVisitor):
         elif ctx.Do():
             pass
         elif ctx.For():
+            block_name = self.builder.block.name
             self.symbol_table = createTable(self.symbol_table)
-            init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
-            cond_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
-            do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
-            end_block = self.builder.append_basic_block()
+            init_block = self.builder.append_basic_block(name='{}.init'.format(block_name))
+            cond_block = self.builder.append_basic_block(name='{}.cond'.format(block_name))
+            do_block = self.builder.append_basic_block(name='{}.do'.format(block_name))
+            end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
             lst_continue, lst_break = self.lst_continue, self.lst_break
             self.lst_continue, self.lst_break = cond_block, end_block
             self.builder.branch(init_block)
@@ -805,7 +835,10 @@ class ToJSVisitor(CVisitor):
             self.visit(ctx.statement())
             if exp:
                 self.visit(exp)
-            self.builder.branch(cond_block)
+            try:
+                self.builder.branch(cond_block)
+            except:
+                pass
             self.builder.position_at_start(end_block)
             self.lst_continue, self.lst_break = lst_continue, lst_break
             self.symbol_table = self.symbol_table.getFather()
