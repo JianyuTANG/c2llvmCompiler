@@ -782,17 +782,36 @@ class ToJSVisitor(CVisitor):
             pass
         elif ctx.For():
             self.symbol_table = createTable(self.symbol_table)
-            self.visit(ctx.forCondition())
+            init_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
+            cond_block = self.builder.append_basic_block()#(name='{}.loop_init'.format(block_name))
+            do_block = self.builder.append_basic_block()#(name='{}.loop_do'.format(block_name))
+            end_block = self.builder.append_basic_block()
+            lst_continue, lst_break = self.lst_continue, self.lst_break
+            self.lst_continue, self.lst_break = cond_block, end_block
+            self.builder.branch(init_block)
+            self.builder.position_at_start(init_block)
+            cond_exp, exp = self.visit(ctx.forCondition())
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(cond_block)
+            condition = self.visit(cond_exp)
+            self.builder.cbranch(condition, do_block, end_block)
+            self.builder.position_at_start(do_block)
+            self.visit(ctx.statement())
+            if exp:
+                self.visit(exp)
+            self.builder.branch(cond_block)
+            self.builder.position_at_start(end_block)
+            self.lst_continue, self.lst_break = lst_continue, lst_break
             self.symbol_table = self.symbol_table.getFather()
-            pass
 
     def visitForCondition(self, ctx:CParser.ForConditionContext):
-        res = [self.visit(ctx.forDeclaration()), self.visit(ctx.forExpression(0)), self.visit(ctx.forExpression(1))]
+        self.visit(ctx.forDeclaration())
+        return ctx.forExpression(0), ctx.forExpression(1)
         # self.visit(ctx.forDeclaration())
         # self.visit(ctx.forExpression(0))
         # self.visit(ctx.forExpression(1))
-        _str = self.visit(ctx.getText())
-        return res
+        # _str = self.visit(ctx.getText())
+        # return res
 
     def visitForDeclaration(self, ctx:CParser.ForDeclarationContext):
         _type = self.visit(ctx.declarationSpecifiers())
@@ -838,46 +857,6 @@ class ToJSVisitor(CVisitor):
                 # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
-    # def visitForDeclaration(self, ctx:CParser.ForDeclarationContext):
-    #     _str = self.visit(ctx.getText())
-    #     pass
-
-    # def visitForExpression(self, ctx:CParser.ForExpressionContext):
-    #     _str = self.visit(ctx.getText())
-    #     pass
-
-    # def visitStatement(self, ctx):
-    #     if ctx.compoundStatement():
-    #         return self.visit(ctx.compoundStatement())
-    #     if isinstance(ctx.children[0], CParser.ExpressionContext):
-    #         return self.visit(ctx.children[0]) + ';'
-    #     txt = ctx.children[0].getText()
-    #     if txt == 'if':
-    #         if_statements = f'if({self.visit(ctx.expression())})' + \
-    #             self.visit(ctx.statement(0))
-    #         else_statement = ''
-    #         if len(ctx.children) > 5:
-    #             else_statement = '\nelse' + self.visit(ctx.statement(1))
-    #         return if_statements + else_statement
-    #     if txt == 'while':
-    #         return f'while({self.visit(ctx.expression())})' + self.visit(ctx.statement(0))
-    #     if txt == 'for':
-    #         forDeclaration = ctx.forDeclaration()
-    #         forDeclaration = '' if not forDeclaration else self.visit(
-    #             forDeclaration)
-    #         forExpression_0 = ctx.forExpression(0)
-    #         forExpression_0 = '' if not forExpression_0 else self.visit(
-    #             forExpression_0)
-    #         forExpression_1 = ctx.forExpression(1)
-    #         forExpression_1 = '' if not forExpression_1 else self.visit(
-    #             forExpression_1)
-    #         return f'for ({forDeclaration}; {forExpression_0}; {forExpression_1})' + self.visit(ctx.statement(0))
-    #     if txt == 'return':
-    #         expression = ''
-    #         if ctx.expression():
-    #             expression = self.visit(ctx.expression())
-    #         return f'return {expression};'
-    #     return ctx.getText()
 
     def visitSelectionStatement(self, ctx:CParser.SelectionStatementContext):
         """
