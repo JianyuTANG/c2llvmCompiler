@@ -234,13 +234,14 @@ class ToJSVisitor(CVisitor):
                             indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
                             ptr = self.builder.gep(ptr=temp, indices=indices)
                             self.builder.store(init_val[i], ptr)
-                        temp = self.builder.bitcast(temp, ir.PointerType(_type))
-                        temp_ptr = self.builder.alloca(temp.type)
-                        self.builder.store(temp, temp_ptr)
-                        temp = temp_ptr
+
                 else:
                     temp = ir.GlobalValue(self.module, arr_type, name=name)
                 # 保存指针
+                temp = self.builder.bitcast(temp, ir.PointerType(_type))
+                temp_ptr = self.builder.alloca(temp.type)
+                self.builder.store(temp, temp_ptr)
+                temp = temp_ptr
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
             else:
@@ -358,7 +359,7 @@ class ToJSVisitor(CVisitor):
         print("logicalandexpression",ctx.getText())
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
-            lhs = self.visit(ctx.logicalOrExpression())
+            lhs = self.visit(ctx.inclusiveOrExpression())
             result = self.builder.alloca(self.BOOL_TYPE)
             with self.builder.if_else(lhs) as (then, otherwise):
                 with then:
@@ -624,6 +625,11 @@ class ToJSVisitor(CVisitor):
                 else:
                     args_=[]
                 lhs, _=self.visit(ctx.postfixExpression())
+                print(lhs)
+                try:
+                    print(args_)
+                except:
+                    print('print args meet question')
                 return self.builder.call(lhs, args_), False
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
