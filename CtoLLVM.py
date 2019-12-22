@@ -399,7 +399,7 @@ class ToJSVisitor(CVisitor):
                 print(ptr_struct_instance_)
                 # 结构体实例化，分配内存
                 print("ooooooooooooooooooooooo",_type.name)
-                self.symbol_table.insert(name,value=[_type.name,ptr_struct_instance_])
+                self.symbol_table.insert(name,value=ptr_struct_instance_)
                 print(self.symbol_table.value_list)
                 print(self.symbol_table.getValue(name))
                 # 存入符号表，先记录struct类型指针，再记录当前实例化指针
@@ -871,7 +871,8 @@ class ToJSVisitor(CVisitor):
             elif ctx.children[1].getText()=='.':
                 struct_instance_ptr_name=ctx.postfixExpression().getText()
                 param_name=ctx.Identifier().getText()
-                struct_type_name,struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_type_name = struct_instance_ptr.type.pointee.name
                 print("yyyy",struct_type_name,struct_instance_ptr)
                 indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
                 print(indice_)
