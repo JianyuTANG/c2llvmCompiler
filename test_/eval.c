@@ -128,14 +128,15 @@ int main()
     char char_data[128];
     ch.data = char_data;
 
-    char str[105];
+    printf("Please enter expression:\n");
+    char str[128];
     scanf("%s", str);
     while (emptyInt(&num) == 0)
         popInt(&num);
     while (emptyChar(&ch) == 0)
         popChar(&ch);
     pushChar(&ch, '=');
-    char temp[30];
+    char temp[128];
     int len = strlen(str), k = 0;
     str[len] = '=';
     str[len + 1] = '\0';
@@ -159,7 +160,7 @@ int main()
         if (k != 0)
         {
             pushInt(&num, atoi(temp));
-            memset(temp, 0, 30);
+            memset(temp, 0, 128);
             k = 0;
         }
         //	printf("%c",compare(ch.top(),str[i]));
@@ -180,7 +181,7 @@ int main()
             pushInt(&num, cal(b, a, popChar(&ch)));
         }
     }
-    printf("%d\n", topInt(&num));
-    popInt(&num);
+    printf("The result is %d\n", popInt(&num));
+    // popInt(&num);
     return 0;
 }

@@ -844,19 +844,6 @@ class ToLLVMVisitor(CVisitor):
         """返回代码"""
         return repr(self.module)
 
-
-# def main(argv):
-#     input = FileStream('test.c' if len(argv) <= 1 else argv[1])
-#     lexer = CLexer(input)
-#     stream = CommonTokenStream(lexer)
-#     parser = CParser(stream)
-#     tree = parser.compilationUnit()
-#     _visitor = ToLLVMVisitor()
-#     _visitor.visit(tree)
-
-#     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
-#         f.write(_visitor.output())
-
 import argparse
 
 if __name__ == '__main__':
