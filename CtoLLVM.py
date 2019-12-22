@@ -17,7 +17,7 @@ def getSize(_type):
     pass
 
 
-class ToJSVisitor(CVisitor):
+class ToLLVMVisitor(CVisitor):
     BASE_TYPE = 0
     ARRAY_TYPE = 1
     FUNCTION_TYPE = 2
@@ -659,10 +659,6 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.relationalExpression())
         else:
             op = ctx.children[1].getText()
-            print("op",op)
-            # rhs=ir.Constant(self.INT_TYPE,ctx.children[2].getText())
-            # lhs=self.builder.alloca(self.INT_TYPE)
-            # self.builder.store(self.INT_TYPE(33),lhs)
             lhs = self.visit(ctx.equalityExpression())
             rhs=self.visit(ctx.relationalExpression())
             return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
@@ -830,7 +826,6 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("postfix expression:", ctx.children)
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
 
@@ -873,26 +868,20 @@ class ToJSVisitor(CVisitor):
                 param_name=ctx.Identifier().getText()
                 struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
                 struct_type_name = struct_instance_ptr.type.pointee.name
-                print("yyyy",struct_type_name,struct_instance_ptr)
                 indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
-                print(indice_)
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
                 ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
-                print(ptr)
                 return ptr,True
             elif ctx.children[1].getText()=='->':
                 struct_instance_ptr_name=ctx.postfixExpression().getText()
                 param_name=ctx.Identifier().getText()
                 struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
                 struct_type_name = struct_instance_ptr.type.pointee.pointee.name
-                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]
                 new_ptr=self.builder.load(struct_instance_ptr)
                 # 先将结构体指针load为结构体
                 indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
-                print(indice_)
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
                 ptr = self.builder.gep(ptr=new_ptr, indices=indices)
-                print(ptr)
                 return ptr,True
             else:
                 print("Ooops, unsupported type in postfix expression!")
@@ -957,8 +946,6 @@ class ToJSVisitor(CVisitor):
         #     val = self.builder.load(val)
         #     return val
 
-    # def visitExpression(self, ctx: CParser.ExpressionContext):
-    #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitArgumentExpressionList(self, ctx:CParser.ArgumentExpressionListContext):
         if not ctx.argumentExpressionList():
@@ -1225,19 +1212,15 @@ class ToJSVisitor(CVisitor):
         #     self.switch_context = old_context
         #     self.break_block = old_break
 
-    # def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-    #     return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
-
     def visitTerminal(self, node):
         return node.getText()
 
     def visitInitializerList(self, ctx: CParser.InitializerListContext):
         '''
-
-initializerList
-    :   designation? initializer
-    |   initializerList ',' designation? initializer
-    ;
+        initializerList
+            :   designation? initializer
+            |   initializerList ',' designation? initializer
+            ;
         不考虑有designation的情况
         :param ctx:
         :return:
@@ -1305,7 +1288,7 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
     tree = parser.compilationUnit()
-    _visitor = ToJSVisitor()
+    _visitor = ToLLVMVisitor()
     _visitor.visit(tree)
 
     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
