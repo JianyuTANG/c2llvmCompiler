@@ -543,6 +543,7 @@ class ToJSVisitor(CVisitor):
 
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
         if ctx.unaryExpression():
+            print(ctx.getText())
             val, pt = self.visit(ctx.unaryExpression())
             if pt:
                 pt = val

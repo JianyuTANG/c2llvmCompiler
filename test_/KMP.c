@@ -1,76 +1,80 @@
+//KMP TEST
+//#include <stdio.h>
 int printf(const char *format,...);
 int strlen(const char * s);
 
 
-void computeNext(char *t, int *next)
+int match(char *s, char *t, int pos, int *next)
 {
-    int length_t = strlen(t);
-    int index_t = 0;
-    next[index_t] = 0;
-    int index_moving = 1;
-    int range=length_t + 1;
-    while(index_moving < range)
-    {
-        while(index_moving < length_t && index_t < length_t && t[index_moving] == t[index_t])
-        {
-            index_t += 1;
-            index_moving += 1;
-            next[index_moving] = index_t;
-        }
-        if(index_moving == length_t)
-        {
-            next[index_moving] = index_t;
-            break;
-        }
-        if(t[index_moving] != t[index_t])
-        {
-            while(index_t != 0 && t[index_moving] != t[index_t])
-            {
-                index_t = next[index_t];
-            }
-            next[index_moving] = index_t;
-            continue;
-        }
-        index_moving += 1;
-    }
+	int i = pos;
+	int j = 0;
+	int ls = strlen(s);
+	int lt = strlen(t);
+	while (i < ls && j < lt)
+	{
+		if (j == -1 || s[i] == t[j])
+		{
+			i += 1;
+			j += 1;
+		}
+		else
+		{
+			j = next[j];
+		}
+	}
+
+	if (lt == j)
+	{
+		return i - lt;
+	}
+    return -1;
+}
+
+
+void get_next(char *t, int *next)
+{
+	int k = -1;
+	int j = 0;
+	next[j] = k;
+	int lt = strlen(t);
+	while (j < lt)
+	{
+		if (k == -1 || t[j] == t[k])
+		{
+			k += 1;
+			j += 1;
+			next[j] = k;
+		}
+		else
+		{
+			k = next[k];
+		}
+	}
+}
+
+
+void print_next(int *next, int n)
+{
+	for (int i = 0; i < n; i += 1)
+	{
+		printf("next[%d] = %d\n", i, next[i]);
+	}
 }
 
 int main()
 {
-    int next[1000];
-    char* s = "abcdefgabdef";
-    char* t = "ab";
-    computeNext(t, next);
-    int length_s = strlen(s);
-    int length_t = strlen(t);
-    if(length_t == 0)
-    {
-        return 0;
-    }
-    int index_t = 0;
-    int index_s = 0;
-    while(index_s < length_s)
-    {
-        while(index_s < length_s && index_t < length_t && s[index_s] == t[index_t])
-        {
-            index_t+=1;
-            index_s+=1;
-        }
-        if(index_t == length_t)
-        {
-            printf("%d\n", index_s - length_t);
-            index_t = next[index_t];
-            continue;
-        }
-        if(index_s == length_s)
-        {
-            break;
-        }
-        while(index_t != 0 && s[index_s] != t[index_t])
-        {
-            index_t = next[index_t];
-        }
-        index_s += 1;
-    }
-    return 0;
+	char *s = "ababcabcacbab";
+	char *t = "abcac";
+	int pos = 0;
+	int index;
+    int next[32];
+
+
+	printf("\nKMP test:\n");
+	get_next(t, next);
+	print_next(next, strlen(t));
+
+	index = match(s, t, pos, next);
+	printf("index = %d\n", index);
+	return 0;
 }
