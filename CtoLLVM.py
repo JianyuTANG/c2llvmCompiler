@@ -884,13 +884,14 @@ class ToJSVisitor(CVisitor):
                 struct_instance_ptr_name=ctx.postfixExpression().getText()
                 param_name=ctx.Identifier().getText()
                 struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
-                struct_type_name = struct_instance_ptr.name
-                print("struct_type name:",struct_type_name)
-                print("yyyy",struct_type_name,struct_instance_ptr.type.pointee)
-                # indice_=self.struct_table.getParamIndice(struct_instance_ptr.type.pointee.name,param_name)
-                # print(indice_)
+                struct_type_name = struct_instance_ptr.type.pointee.pointee.name
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]
-                ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
+                new_ptr=self.builder.load(struct_instance_ptr)
+                # 先将结构体指针load为结构体
+                indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
+                print(indice_)
+                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
+                ptr = self.builder.gep(ptr=new_ptr, indices=indices)
                 print(ptr)
                 return ptr,True
             else:
