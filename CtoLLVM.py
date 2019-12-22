@@ -880,6 +880,19 @@ class ToJSVisitor(CVisitor):
                 ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
                 print(ptr)
                 return ptr,True
+            elif ctx.children[1].getText()=='->':
+                struct_instance_ptr_name=ctx.postfixExpression().getText()
+                param_name=ctx.Identifier().getText()
+                struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_type_name = struct_instance_ptr.name
+                print("struct_type name:",struct_type_name)
+                print("yyyy",struct_type_name,struct_instance_ptr.type.pointee)
+                # indice_=self.struct_table.getParamIndice(struct_instance_ptr.type.pointee.name,param_name)
+                # print(indice_)
+                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]
+                ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
+                print(ptr)
+                return ptr,True
             else:
                 print("Ooops, unsupported type in postfix expression!")
 
