@@ -641,21 +641,20 @@ class ToJSVisitor(CVisitor):
             return rhs
         if ctx.Constant():
             _str = ctx.Constant().getText()
-            if re.match(r'^\d+$', _str):
-                val = int(_str)
+            val = eval(_str)
+            if val.__class__ == int:
                 return ir.Constant(self.INT_TYPE, val)
-            elif re.match(r'^\d*.\d+$', _str):
-                val = float(_str)
+            elif val.__class__ == float:
                 return ir.Constant(self.FLOAT_TYPE, val)
-            elif re.match(r"^'.'$", _str):
-                val = ord(_str[1])
+            elif val.__class__ == str:
+                val = ord(val)
                 return ir.Constant(self.CHAR_TYPE, val)
             else:
                 raise Exception()
         elif ctx.StringLiteral():
-            _str = ctx.StringLiteral()[0].getText()[1:-1]
+            _str = eval(ctx.StringLiteral()[0].getText())
             # byte = _str.encode('ascii') + b'\0'
-            length = len(_str) + 1
+            # length = len(_str) + 1
             # arr_type = ir.ArrayType(self.CHAR_TYPE, length)
             _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
             temp = ir.Constant.literal_array(_str_array)
