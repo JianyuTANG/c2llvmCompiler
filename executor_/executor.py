@@ -32,12 +32,6 @@ def compile_ir(engine, llvm_ir):
 
 
 def execute(ir_filename):
-    """
-    执行ir代码
-    :param ir_filename:文件名
-    :param 代码输出的文件，如果没有，则打印在屏幕上
-    :return:
-    """
     # All these initializations are required for code generation!
     llvm.initialize()
     llvm.initialize_native_target()
@@ -54,12 +48,11 @@ def execute(ir_filename):
 
         return ret
 
+import argparse
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("IR filename required. Usage: python executor.py IR_filename")
-        exit(-1)
-
-    ret = execute(sys.argv[1])
-    if ret is not None:
-        print("Program exits with code ", ret)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('input')
+    args = parser.parse_args()
+    ret = execute(args.input)
+    print("Program exits with code {}".format(ret))

@@ -840,8 +840,26 @@ class ToLLVMVisitor(CVisitor):
         return repr(self.module)
 
 
-def main(argv):
-    input = FileStream('test.c' if len(argv) <= 1 else argv[1])
+# def main(argv):
+#     input = FileStream('test.c' if len(argv) <= 1 else argv[1])
+#     lexer = CLexer(input)
+#     stream = CommonTokenStream(lexer)
+#     parser = CParser(stream)
+#     tree = parser.compilationUnit()
+#     _visitor = ToLLVMVisitor()
+#     _visitor.visit(tree)
+
+#     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
+#         f.write(_visitor.output())
+
+import argparse
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('input')
+    parser.add_argument("-o", "--output", help="output IR file path", default='test.ll')
+    args = parser.parse_args()
+    input = FileStream(args.input)
     lexer = CLexer(input)
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
@@ -849,10 +867,5 @@ def main(argv):
     _visitor = ToLLVMVisitor()
     _visitor.visit(tree)
 
-    with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
+    with open(args.output, 'w', encoding='utf-8') as f:
         f.write(_visitor.output())
-    print(_visitor.output())
-
-
-if __name__ == '__main__':
-    main(['main', 'test.c'])
