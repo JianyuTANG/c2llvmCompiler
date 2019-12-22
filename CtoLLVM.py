@@ -4,9 +4,11 @@ from parser_.CLexer import CLexer
 from parser_.CParser import CParser
 from parser_.CVisitor import CVisitor
 from llvmlite import ir
+import llvmlite.binding as llvm
 import re
 from SymbolTable import *
 from StructTable import *
+from ctypes import CFUNCTYPE, c_int
 
 
 class ToLLVMVisitor(CVisitor):
@@ -845,32 +847,60 @@ class ToLLVMVisitor(CVisitor):
         return repr(self.module)
 
 
-# def main(argv):
-#     input = FileStream('test.c' if len(argv) <= 1 else argv[1])
-#     lexer = CLexer(input)
-#     stream = CommonTokenStream(lexer)
-#     parser = CParser(stream)
-#     tree = parser.compilationUnit()
-#     _visitor = ToLLVMVisitor()
-#     _visitor.visit(tree)
+def execute(ir_filename):
+    # All these initializations are required for code generation!
+    llvm.initialize()
+    llvm.initialize_native_target()
+    llvm.initialize_native_asmprinter()
 
-#     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
-#         f.write(_visitor.output())
+    with open(ir_filename) as f:
+        llvm_ir = f.read()
+        target = llvm.Target.from_default_triple()
+        target_machine = target.create_target_machine()
+        backing_mod = llvm.parse_assembly("")
+        engine = llvm.create_mcjit_compiler(backing_mod, target_machine)
+
+        mod = llvm.parse_assembly(llvm_ir)
+        mod.verify()
+        engine.add_module(mod)
+        engine.finalize_object()
+
+        main_type = CFUNCTYPE(c_int)
+        main_func = main_type(engine.get_function_address("main"))
+        ret = main_func()
+
+        return ret
+
 
 import argparse
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input')
     parser.add_argument("-o", "--output", help="output IR file path", default='test.ll')
+    parser.add_argument('type', choices=['compile', 'execute'])
     args = parser.parse_args()
+    print("source filename: " + args.input)
+    print("output filename: " + args.output)
     input = FileStream(args.input)
     lexer = CLexer(input)
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
     tree = parser.compilationUnit()
     _visitor = ToLLVMVisitor()
-    _visitor.visit(tree)
+    try:
+        _visitor.visit(tree)
+    except:
+        print('compilation error!')
+        exit(0)
 
     with open(args.output, 'w', encoding='utf-8') as f:
         f.write(_visitor.output())
+
+    if args.type == 'execute':
+        print("start execute\n")
+        try:
+            execute(args.output)
+        except:
+            print('execution error!')
