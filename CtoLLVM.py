@@ -42,6 +42,7 @@ class ToJSVisitor(CVisitor):
         self.lst_break = None
         self.func_table = FuncTable()
         self.struct_table = StructTable()
+        self.struct_instance_ing=False  # 是否在实例化结构体
         # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
         # self.func = ir.Function(self.module, self.fnty, name="fpadd")
@@ -96,12 +97,6 @@ class ToJSVisitor(CVisitor):
         # 退回父符号表
         self.symbol_table = self.symbol_table.getFather()
 
-
-    # def visitDeclarationSpecifiers(self, ctx):
-    #     if ctx.CONST():
-    #         return 'const'
-    #     return 'let'
-
     def visitDeclarator(self, ctx: CParser.DeclaratorContext):
         # if ctx.directDeclarator():
         return self.visit(ctx.directDeclarator())
@@ -143,51 +138,48 @@ class ToJSVisitor(CVisitor):
                 params = []
             return name, params
 
-        # if ctx.Identifier():
-        #     return ctx.getText()
-        #
-        # if ctx.LeftParen().getText() == '(':
-        #     name = self.visit(ctx.directDeclarator())
-        #     params = self.visit(ctx.parameterTypeList())
-        #     return name, params
-            # 函数声明
-            # name, ret_tp, pms = self.visitDirectDeclarator(
-            #     ctx.directDeclarator())
-
-            # ret_tp = ir.FunctionType(ret_tp, pms)
-            # if ctx.children[2].getText() == ')':
-            #     # 无参数 形如a()
-            #     return name, ret_tp, []
-            # elif ctx.children[2].getRuleIndex() == CParser.parameterTypeList:
-            #     # 有参数 形如a(int, char, ...)
-            #     pass
-
-    # def visitTypeSpecifier(self, ctx):
-    #     if ctx.CONST():
-    #         return 'const'
-    #     return 'let'
-
-    # def visitPureIdentifier(self, ctx: CParser.DeclaratorContext):
-    #     return ctx.directDeclarator().Identifier().getText()
-
-    # def visitArrayIdentifier(self, ctx:CParser.ArrayIdentifierContext):
-    #     if ctx.assignmentExpression():
-    #         # array definition
-    #         length = self.visit(ctx.assignmentExpression())
-    #         return f'{ctx.Identifier().getText()} = new Array({length})'
-    #     else:
-    #         # string definition
-    #         return f'{ctx.Identifier().getText()}'        
-
-    # def visitFunctionDefinitionOrDeclaration(self, ctx: CParser.FunctionDefinitionContext):
-    #     if ctx.declarationList():
-    #         return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
-    #     return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
+    def visitFunctionDefinitionOrDeclaration(self, ctx: CParser.FunctionDefinitionContext):
+        if ctx.declarationList():
+            return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
+        return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
 
     def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
+        """
+        typeSpecifier
+            :   ('void'
+            |   'char'
+            |   'short'
+            |   'int'
+            |   'long'
+            |   'float'
+            |   'double'
+            |   'signed'
+            |   'unsigned'
+            |   '_Bool'
+            |   '_Complex'
+            |   '__m128'
+            |   '__m128d'
+            |   '__m128i')
+            |   '__extension__' '(' ('__m128' | '__m128d' | '__m128i') ')'
+            |   atomicTypeSpecifier
+            |   structOrUnionSpecifier
+            |   enumSpecifier
+            |   typedefName
+            |   '__typeof__' '(' constantExpression ')' // GCC extension
+            |   typeSpecifier pointer
+            ;
+        :param ctx:
+        :return:
+        """
+        # print("typespecifier: ",ctx.children)
         if ctx.pointer():
             _type = self.visit(ctx.typeSpecifier())
             return ir.PointerType(_type)
+        elif ctx.structOrUnionSpecifier():
+            return self.visit(ctx.structOrUnionSpecifier())
+        elif ctx.typedefName():
+            print("into typedefName")
+            return self.visit(ctx.typedefName())
         else:
             _type = {
                 'int': self.INT_TYPE,
@@ -198,12 +190,186 @@ class ToJSVisitor(CVisitor):
             }.get(ctx.getText())
             return _type
 
+    def visitStructOrUnionSpecifier(self, ctx: CParser.StructOrUnionSpecifierContext):
+        """
+        structOrUnionSpecifier
+            :   structOrUnion Identifier? '{' structDeclarationList '}'
+            | structOrUnion Identifier
+            ;
+        :param ctx:
+        :return: LLVM struct type
+        """
+        if ctx.structDeclarationList():
+            # 结构本身的声明/定义
+            label_ = self.visit(ctx.structOrUnion())
+            if label_ == 'struct':
+                # 结构体
+                if ctx.Identifier():
+                    # 非匿名结构
+                    struct_name = ctx.Identifier().getText()
+                    if self.symbol_table.getValue(struct_name):
+                        # 重定义
+                        print("Redefintion error!")
+                    else:
+                        self.is_defining_struct = struct_name
+                        print("structDeclarationList: ",ctx.structDeclarationList().getText())
+                        tmp_list = self.visit(ctx.structDeclarationList())
+                        print("tmp_list: ",tmp_list)
+                        # self.struct_reflection[struct_name] = {}
+                        index = 0
+                        ele_list = []
+                        for ele in tmp_list:
+                            # self.struct_reflection[struct_name][ele['name']] = {
+                            #     'type': ele['type'],
+                            #     'index': index
+                            # }
+                            ele_list.append(ele['type'])
+                            # index = index + 1
+                        new_struct = ir.global_context.get_identified_type(name=struct_name)
+                        new_struct.set_body(*ele_list)
+                        print("insert before")
+                        # 将struct定义插入结构体表，记录
+                        self.struct_table.insert(struct_name,new_struct)
+                        print("struct table: ",self.struct_table)
+                        print("gett",self.struct_table.getValue(struct_name))
+                        # self.symbol_table.insert(struct_name,new_struct)
+                        print("insert after")
+                        # self.is_defining_struct = ''
+                        print("new_struct:",new_struct)
+                        return new_struct
+        else:
+            # 结构实体的定义
+            label_ = self.visit(ctx.structOrUnion())
+            if label_ == 'struct':
+                # 结构体
+                print("iiiden:",ctx.Identifier().getText())
+                struct_name = ctx.Identifier().getText()
+                # if (
+                #         ctx.Identifier().getText() in self.struct_reflection.keys()) or self.is_defining_struct == struct_name:
+                #     # 已有定义或者正在定义该结构
+                #     new_struct = ir.global_context.get_identified_type(name=struct_name)
+                #     return new_struct
+                new_struct = ir.global_context.get_identified_type(name=struct_name)
+                return new_struct
+
+    def visitTypedefName(self, ctx:CParser.TypedefNameContext):
+        """
+            typedefName
+        :   Identifier
+        ;
+        :param ctx:
+        :return:
+        """
+        return ctx.getText()
+
+    def visitStructDeclarationList(self, ctx:CParser.StructDeclarationListContext):
+        """
+            structDeclarationList
+        :   structDeclaration
+        |   structDeclarationList structDeclaration
+        ;
+        :param ctx:
+        :return: list
+        """
+        if ctx.structDeclarationList():
+            sub_list = self.visit(ctx.structDeclarationList())
+            sub_dict = self.visit(ctx.structDeclaration())
+            sub_list.append(sub_dict)
+            return sub_list
+        else:
+            # sub_dict = self.visit(ctx.structDeclaration())
+            return [self.visit(ctx.structDeclaration())]
+
+    def visitStructDeclaration(self, ctx:CParser.StructDeclarationContext):
+        """
+            structDeclaration
+        :   specifierQualifierList structDeclaratorList? ';'
+        |   staticAssertDeclaration
+        ;
+        :param ctx:
+        :return: a tuple of reflection between name and index
+        """
+        # 只支持第一种不带structDeclaratorList的格式
+        if ctx.staticAssertDeclaration() or ctx.structDeclaratorList():
+            print("Oops, not supported yet!")
+        return self.visit(ctx.specifierQualifierList())
+
+    def visitSpecifierQualifierList(self, ctx:CParser.SpecifierQualifierListContext):
+        """
+        specifierQualifierList
+            :   typeSpecifier specifierQualifierList?
+            |   typeQualifier specifierQualifierList?
+            ;
+        :param ctx:
+        :return:
+        """
+        if ctx.typeQualifier():
+            print("typeQualifier not supported yet!")
+        if not ctx.specifierQualifierList():
+            print("into typespecifier: ",ctx.typeSpecifier().getText())
+            return self.visit(ctx.typeSpecifier())
+        else:
+            sub_dict = {'type': self.visit(ctx.children[0]),
+                        'name': self.visit(ctx.children[1])}
+            print(ctx.typeSpecifier().getText())
+            print(ctx.specifierQualifierList().getText())
+            print("sub_dict:",sub_dict)
+            return sub_dict
+
+    def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):
+        '获取结构体/共用体类型'
+        """
+        structOrUnion
+            :   'struct'
+            | 'union'
+        :param ctx:
+        :return: 'struct' or 'union'
+        """
+        print("structOrUnion:", ctx.getText())
+        return ctx.getText()
+
     def visitDeclarationSpecifiers(self, ctx):
+        print("here delcaration specifiers: ",ctx.getText())
+        print(ctx.children[-1].getText())
         return self.visit(ctx.children[-1])
 
+    def visitDeclarationSpecifier(self, ctx:CParser.DeclarationSpecifierContext):
+        """
+        declarationSpecifier
+            :   storageClassSpecifier
+            |   typeSpecifier
+            |   typeQualifier
+            |   functionSpecifier
+            |   alignmentSpecifier
+            ;
+        :param ctx:
+        :return:
+        """
+        print("declarationSpecifier: ",ctx.children)
+        return self.visit(ctx.children[0])
+
     def visitDeclaration(self, ctx):
+        """
+        declaration
+            :   declarationSpecifiers initDeclaratorList ';'
+            | 	declarationSpecifiers ';'
+            ;
+        :param ctx:
+        :return:
+        """
+        print("visit declaration: ",ctx.getText())
+        print(ctx.declarationSpecifiers().getText())
         _type = self.visit(ctx.declarationSpecifiers())
+        print("in declaration type:",type(_type))
+        # if type(_type)==ir.types.IdentifiedStructType:
+        #     # 如果是结构体，就没有初始化值操作。结构体定义在declarationSpecifiers中。
+        #     if ctx.initDeclaratorList():
+        #         print("xxx:",ctx.initDeclaratorList().getText())
+        #     return ''
+        if not ctx.initDeclaratorList():
+            return ''
         declarator_list = self.visit(ctx.initDeclaratorList())
+        print("over",declarator_list)
         for name, init_val in declarator_list:
             if isinstance(name, tuple):
                 # 函数类型
@@ -215,6 +381,14 @@ class ToJSVisitor(CVisitor):
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
+                continue
+            elif type(_type)==ir.types.IdentifiedStructType:
+                # 结构体实例化，不需要初始值设定
+                ptr_struct=self.struct_table.getValue(_type.name)
+                # 从结构体表获取定义
+                ptr_struct_instance=self.builder.alloca(ptr_struct)
+                # 结构体实例化，分配内存
+                self.symbol_table.insert(name,ptr_struct_instance)
                 continue
 
             _type2 = self.symbol_table.getType(name)
@@ -714,6 +888,14 @@ class ToJSVisitor(CVisitor):
         return self.visit(ctx.declaration())
 
     def visitInitDeclaratorList(self, ctx):
+        """
+        initDeclaratorList
+            :   initDeclarator
+            |   initDeclaratorList ',' initDeclarator
+            ;
+        :param ctx:
+        :return:
+        """
         declarator_list = []
         declarator_list.append(self.visit(ctx.initDeclarator()))
         if ctx.initDeclaratorList():
@@ -724,16 +906,20 @@ class ToJSVisitor(CVisitor):
         # return self.visit(ctx.initDeclarator())
 
     def visitInitDeclarator(self, ctx):
+        """
+        initDeclarator
+            :   declarator
+            |   declarator '=' initializer
+            ;
+        :param ctx:
+        :return:
+        """
         if ctx.initializer():
             declarator = (self.visit(ctx.declarator()), self.visit(ctx.initializer()))
         else:
             declarator = (self.visit(ctx.declarator()), None)
         return declarator
 
-        # if ctx.initializer():
-        #     # 如果有赋值语句，就返回值和变量名；否则只返回变量名
-        #     return ctx.declarator().getText(), ctx.initializer().getText()
-        # return ctx.declarator().getText()
 
     def visitInitializer(self, ctx):
         if ctx.assignmentExpression():
@@ -896,21 +1082,6 @@ class ToJSVisitor(CVisitor):
                     self.symbol_table = createTable(self.symbol_table)
                     self.visit(branches[0])
                     self.symbol_table = self.symbol_table.getFather()
-        # if ctx.children[0].getText() == 'if':
-        #     cond_val, _ = self.visit(ctx.expression())
-        #     converted_cond_val = TinyCTypes.cast_type(self.builder, target_type=TinyCTypes.bool, value=cond_val, ctx=ctx)
-        #     statements = ctx.statement()
-        #     self.symbol_table.enter_scope()
-        #     if len(statements) == 2:  # 存在else分支
-        #         with self.builder.if_else(converted_cond_val) as (then, otherwise):
-        #             with then:
-        #                 self.visit(statements[0])
-        #             with otherwise:
-        #                 self.visit(statements[1])
-        #     else:  # 只有if分支
-        #         with self.builder.if_then(converted_cond_val):
-        #             self.visit(statements[0])
-        #     self.symbol_table.exit_scope()
         # else:
         #     name_prefix = self.builder.block.name
         #     start_block = self.builder.block
