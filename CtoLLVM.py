@@ -233,9 +233,7 @@ class ToLLVMVisitor(CVisitor):
                         print("Redefintion error!")
                     else:
                         self.is_defining_struct = struct_name
-                        print("structDeclarationList: ",ctx.structDeclarationList().getText())
                         tmp_list = self.visit(ctx.structDeclarationList())
-                        print("tmp_list: ",tmp_list)
                         # self.struct_reflection[struct_name] = {}
                         index = 0
                         ele_list = []
@@ -245,17 +243,14 @@ class ToLLVMVisitor(CVisitor):
                             #     'type': ele['type'],
                             #     'index': index
                             # }
+                            print("name:",ele['name'])
                             param_list.append(ele['name'])
-                            print("ele['name']",ele['name'])
                             ele_list.append(ele['type'])
                             # index = index + 1
                         new_struct = ir.global_context.get_identified_type(name=struct_name)
                         new_struct.set_body(*ele_list)
-                        print("insert before")
                         # 将struct定义插入结构体表，记录
                         self.struct_table.insert(struct_name,new_struct,param_list)
-                        print("struct table: ",self.struct_table)
-                        print("gett",self.struct_table.getPtr(struct_name))
                         # self.symbol_table.insert(struct_name,new_struct)
                         print("insert after")
                         # self.is_defining_struct = ''
@@ -313,10 +308,52 @@ class ToLLVMVisitor(CVisitor):
         :param ctx:
         :return: a tuple of reflection between name and index
         """
-        # 只支持第一种不带structDeclaratorList的格式
-        if ctx.staticAssertDeclaration() or ctx.structDeclaratorList():
+        # 只支持第一种格式
+        print("rrrr",ctx.getText())
+        if ctx.structDeclaratorList():
+            print("goinin")
+            type_=self.visit(ctx.specifierQualifierList())
+            name_=self.visit(ctx.structDeclaratorList())
+            # return ir.ArrayType(type_,len_)
+            print(ir.ArrayType(type_,100))
+            str___=ctx.structDeclaratorList().getText()
+            len_=int(re.findall(r'\d+', str___)[0])
+            print("len_",len_)
+            return {"type":ir.ArrayType(type_,len_),"name":name_}
+        elif ctx.staticAssertDeclaration():
             print("Oops, not supported yet!")
-        return self.visit(ctx.specifierQualifierList())
+        else:
+            return self.visit(ctx.specifierQualifierList())
+
+    def visitStructDeclaratorList(self, ctx:CParser.StructDeclaratorListContext):
+        """
+        structDeclaratorList
+            :   structDeclarator
+            |   structDeclaratorList ',' structDeclarator
+            ;
+        :param ctx:
+        :return:
+        """
+        if not ctx.structDeclaratorList():
+            return self.visit(ctx.structDeclarator())
+        else:
+            print("Oops, not supported in struct declarator list!")
+
+    def visitStructDeclarator(self, ctx:CParser.StructDeclaratorContext):
+        """
+        structDeclarator
+            :   declarator
+            |   declarator? ':' constantExpression
+            ;
+        :param ctx:
+        :return:
+        """
+        print(ctx.getText())
+        print(ctx.children)
+        if len(ctx.children)==1:
+            return self.visit(ctx.declarator())
+        else:
+            print("Oops, not supported in struct declarator!")
 
     def visitSpecifierQualifierList(self, ctx:CParser.SpecifierQualifierListContext):
         """
@@ -335,9 +372,6 @@ class ToLLVMVisitor(CVisitor):
         else:
             sub_dict = {'type': self.visit(ctx.children[0]),
                         'name': self.visit(ctx.children[1])}
-            print(ctx.typeSpecifier().getText())
-            print(ctx.specifierQualifierList().getText())
-            print("sub_dict:",sub_dict)
             return sub_dict
 
     def visitStructOrUnion(self, ctx: CParser.StructOrUnionContext):
@@ -878,10 +912,8 @@ class ToLLVMVisitor(CVisitor):
             if not pt:
                 raise Exception()
             # 得到指针的值
-            print(var.type)
             var = self.builder.load(var)
             # 获取指针指向的类型
-            print(var.type)
             value = self.builder.load(var)
             arr_type = ir.PointerType(ir.ArrayType(value.type, 100))
             # 将指针转换为指向数组的指针
@@ -891,7 +923,6 @@ class ToLLVMVisitor(CVisitor):
             indices = [ir.Constant(self.INT_TYPE, 0), index]
             # 取值
             ptr = self.builder.gep(ptr=var, indices=indices)
-            print(ptr.type)
             return ptr, True
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
