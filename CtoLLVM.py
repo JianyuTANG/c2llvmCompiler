@@ -707,7 +707,6 @@ class ToJSVisitor(CVisitor):
     def visitCompoundStatement(self, ctx):
         for i in ctx.children:
             self.visit(i)
-        # return '\n{\n' + addIndentation('\n'.join([self.visit(i) for i in ctx.children[1:-1]])) + '\n}'
 
     def visitBlockItem(self, ctx):
         if ctx.statement():
@@ -788,7 +787,70 @@ class ToJSVisitor(CVisitor):
         elif ctx.Do():
             pass
         elif ctx.For():
+            self.symbol_table = createTable(self.symbol_table)
+            self.visit(ctx.forCondition())
+            self.symbol_table = self.symbol_table.getFather()
             pass
+
+    def visitForCondition(self, ctx:CParser.ForConditionContext):
+        res = [self.visit(ctx.forDeclaration()), self.visit(ctx.forExpression(0)), self.visit(ctx.forExpression(1))]
+        # self.visit(ctx.forDeclaration())
+        # self.visit(ctx.forExpression(0))
+        # self.visit(ctx.forExpression(1))
+        _str = self.visit(ctx.getText())
+        return res
+
+    def visitForDeclaration(self, ctx:CParser.ForDeclarationContext):
+        _type = self.visit(ctx.declarationSpecifiers())
+        declarator_list = self.visit(ctx.initDeclaratorList())
+        for name, init_val in declarator_list:
+            _type2 = self.symbol_table.getType(name)
+            if _type2[0] == self.ARRAY_TYPE:
+                # 数组类型
+                length = _type2[1]
+                arr_type = ir.ArrayType(_type, length.constant)
+                if self.builder:
+                    temp = self.builder.alloca(arr_type, name=name)
+                    if init_val:
+                        # 有初值
+                        l = len(init_val)
+                        if l > length.constant:
+                            # 数组过大
+                            return
+                        for i in range(l):
+                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
+                            ptr = self.builder.gep(ptr=temp, indices=indices)
+                            self.builder.store(init_val[i], ptr)
+                        temp = self.builder.bitcast(temp, ir.PointerType(_type))
+                        temp_ptr = self.builder.alloca(temp.type)
+                        self.builder.store(temp, temp_ptr)
+                        temp = temp_ptr
+                else:
+                    temp = ir.GlobalValue(self.module, arr_type, name=name)
+                # 保存指针
+                self.symbol_table.insert(name, btype=_type2, value=temp)
+
+            else:
+                # 普通变量
+                if self.builder:
+                    temp = self.builder.alloca(_type, size=1, name=name)
+                    if init_val:
+                        self.builder.store(init_val, temp)
+                else:
+                    temp = ir.GlobalValue(self.module, _type, name=name)
+                    # if init_val:
+                    #     temp.store(value=init_val, ptr=temp)
+
+                # 保存指针
+                self.symbol_table.insert(name, btype=_type2, value=temp)
+
+    # def visitForDeclaration(self, ctx:CParser.ForDeclarationContext):
+    #     _str = self.visit(ctx.getText())
+    #     pass
+
+    # def visitForExpression(self, ctx:CParser.ForExpressionContext):
+    #     _str = self.visit(ctx.getText())
+    #     pass
 
     # def visitStatement(self, ctx):
     #     if ctx.compoundStatement():
@@ -906,8 +968,8 @@ class ToJSVisitor(CVisitor):
         #     self.switch_context = old_context
         #     self.break_block = old_break
 
-    def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-        return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
+    # def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
+    #     return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
 
     def visitTerminal(self, node):
         return node.getText()
