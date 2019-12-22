@@ -20,6 +20,7 @@ def getSize(_type):
 class ToJSVisitor(CVisitor):
     BASE_TYPE = 0
     ARRAY_TYPE = 1
+    ARRAY_2D_TYPE = 4
     FUNCTION_TYPE = 2
 
     CHAR_TYPE = ir.IntType(8)
@@ -127,11 +128,25 @@ class ToJSVisitor(CVisitor):
             return name
         elif ctx.children[1].getText() == '[':
             name = self.visit(ctx.directDeclarator())
-            if ctx.assignmentExpression():
-                length = self.visit(ctx.assignmentExpression())
-                btype = (self.ARRAY_TYPE, length)
-            else:
-                pass
+            if self.symbol_table.getType(name) is not None and self.symbol_table.getValue(name) is None:
+                # 二维数组的情况
+                btype, length = self.symbol_table.getType(name)
+                if btype == self.ARRAY_TYPE:
+                    first_dimension = length
+                    second_dimension = self.visit(ctx.assignmentExpression())
+                    dim = (first_dimension, second_dimension)
+                    btype = (self.ARRAY_2D_TYPE, dim)
+                    self.symbol_table.insert(name, btype=btype)
+                    return name
+
+            # 普通一维数组
+            length = self.visit(ctx.assignmentExpression())
+            btype = (self.ARRAY_TYPE, length)
+            # if ctx.assignmentExpression():
+            #     length = self.visit(ctx.assignmentExpression())
+            #     btype = (self.ARRAY_TYPE, length)
+            # else:
+            #     pass
             self.symbol_table.insert(name, btype=btype)
             return name
         elif ctx.children[1].getText() == '(':
@@ -399,7 +414,7 @@ class ToJSVisitor(CVisitor):
 
             _type2 = self.symbol_table.getType(name)
             if _type2[0] == self.ARRAY_TYPE:
-                # 数组类型
+                # 1D数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
                 if self.builder:
@@ -423,6 +438,34 @@ class ToJSVisitor(CVisitor):
                 self.builder.store(temp, temp_ptr)
                 temp = temp_ptr
                 self.symbol_table.insert(name, btype=_type2, value=temp)
+
+            elif _type2[0] == self.ARRAY_2D_TYPE:
+                # 2D数组类型
+                dim = _type2[1]
+                first_dim = dim[0]
+                second_dim = dim[1]
+                first_dim_c = first_dim.constant
+                second_dim_c = second_dim.constant
+                print(first_dim_c)
+                print(second_dim_c)
+                inner_arr_type = ir.ArrayType(_type, second_dim_c)       # int *
+                for_outer_type = ir.PointerType(_type)   # int *
+                arr_type = ir.ArrayType(for_outer_type, first_dim_c)     # int **
+                outer_arr = self.builder.alloca(arr_type, name=name)     # int ***
+                for i in range(first_dim_c):
+                    temp = self.builder.alloca(inner_arr_type)           # int **
+                    temp = self.builder.bitcast(temp, ir.PointerType(_type))    # int *
+
+                    # temp_ptr = self.builder.alloca(temp.type)
+                    # self.builder.store(temp, temp_ptr)
+
+                    indices = [ir.Constant(self.INT_TYPE, 0), ir.Constant(self.INT_TYPE, i)]
+                    ptr = self.builder.gep(ptr=outer_arr, indices=indices)
+                    self.builder.store(temp, ptr)
+                temp = self.builder.bitcast(outer_arr, ir.PointerType(for_outer_type))
+                temp_ptr = self.builder.alloca(temp.type)
+                self.builder.store(temp, temp_ptr)
+                self.symbol_table.insert(name, btype=_type2, value=temp_ptr)
 
             else:
                 # 普通变量
@@ -813,8 +856,10 @@ class ToJSVisitor(CVisitor):
             if not pt:
                 raise Exception()
             # 得到指针的值
+            print(var.type)
             var = self.builder.load(var)
             # 获取指针指向的类型
+            print(var.type)
             value = self.builder.load(var)
             arr_type = ir.PointerType(ir.ArrayType(value.type, 100))
             # 将指针转换为指向数组的指针
@@ -824,6 +869,7 @@ class ToJSVisitor(CVisitor):
             indices = [ir.Constant(self.INT_TYPE, 0), index]
             # 取值
             ptr = self.builder.gep(ptr=var, indices=indices)
+            print(ptr.type)
             return ptr, True
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
