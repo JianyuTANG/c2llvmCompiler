@@ -659,14 +659,6 @@ class ToLLVMVisitor(CVisitor):
             return self.visit(ctx.exclusiveOrExpression())
 
     def visitExclusiveOrExpression(self, ctx:CParser.ExclusiveOrExpressionContext):
-        """
-        exclusiveOrExpression
-            :   andExpression
-            |   exclusiveOrExpression '^' andExpression
-            ;
-        :param ctx:
-        :return:
-        """
         print("exclusiveorexpression",ctx.getText())
         if ctx.exclusiveOrExpression():
             # 上述第二种情况
@@ -675,46 +667,18 @@ class ToLLVMVisitor(CVisitor):
             return self.visit(ctx.andExpression())
 
     def visitAndExpression(self, ctx:CParser.AndExpressionContext):
-        """
-        andExpression
-            :   equalityExpression
-            |   andExpression '&' equalityExpression
-            ;
-        :param ctx:
-        :return:
-        """
         print("andexpression", ctx.getText())
         if ctx.andExpression():
-            # 上述第二种情况
             return self.visit(ctx.andExpression())
         else:
             return self.visit(ctx.equalityExpression())
 
     def visitLogicalOrExpression(self, ctx: CParser.LogicalOrExpressionContext):
-        """
-        logicalOrExpression
-            :   logicalAndExpression
-            |   logicalOrExpression '||' logicalAndExpression
-            ;
-        """
         print('logicalorexpression',ctx.getText())
         print(ctx.children)
         if ctx.logicalOrExpression():
-            # 如果有多个'或'语句
             lhs= self.visit(ctx.logicalOrExpression())
             rhs= self.visit(ctx.logicalAndExpression())
-
-            # result = self.builder.alloca(self.BOOL_TYPE)
-            # 如果第一个logicalandexpression返回否才继续，否则直接返回真
-            # try:
-            #     with self.builder.if_else(lhs) as (then, otherwise):
-            #         with then:
-            #             self.builder.store(self.BOOL_TYPE(1), result)
-            #         with otherwise:
-            #             rhs= self.visit(ctx.logicalAndExpression())
-            #             self.builder.store(rhs, result)
-            # except:
-            #     pass
             return self.builder.or_(lhs, rhs)
         else:
             print("no")
@@ -815,7 +779,8 @@ class ToLLVMVisitor(CVisitor):
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
         if ctx.unaryExpression():
             print(ctx.getText())
-            val, pt = self.visit(ctx.unaryExpression())
+            res = self.visit(ctx.unaryExpression())
+            val, pt = res[0], res[1]
             if pt is True:
                 pt = val
                 val = self.builder.load(val)
@@ -1086,9 +1051,15 @@ class ToLLVMVisitor(CVisitor):
         if ctx.Return():
             if ctx.expression():
                 _value = self.visit(ctx.expression())
-                self.builder.ret(_value)
+                try:
+                    self.builder.ret(_value)
+                except:
+                    pass
             else:
-                self.builder.ret_void()
+                try:
+                    self.builder.ret_void()
+                except:
+                    pass
 
         elif ctx.Continue():
             if self.lst_continue:
@@ -1229,30 +1200,82 @@ class ToLLVMVisitor(CVisitor):
             # print(ctx.statement()[0].getText())
             # print(ctx.statement()[1].getText())
             print(ctx.expression().getText())
-            expr_val = self.visit(ctx.expression())
-            print("expression result:", expr_val)
+            # print("expression result:", expr_val)
             branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
+                block_name = self.builder.block.name
+                # self.symbol_table = createTable(self.symbol_table)
+                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
+                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
+                else_block = self.builder.append_basic_block(name='{}.else'.format(block_name))
+                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
                 try:
-                    with self.builder.if_else(expr_val) as (then, otherwise):
-                        with then:
-                            self.symbol_table = createTable(self.symbol_table)
-                            self.visit(branches[0])
-                            self.symbol_table = self.symbol_table.getFather()
-                        with otherwise:
-                            self.symbol_table = createTable(self.symbol_table)
-                            self.visit(branches[1])
-                            self.symbol_table = self.symbol_table.getFather()
+                    self.builder.branch(if_block)
                 except:
                     pass
+                self.builder.position_at_start(if_block)
+                expr_val = self.visit(ctx.expression())
+                self.builder.cbranch(expr_val, then_block, else_block)
+                self.builder.position_at_start(then_block)
+                self.symbol_table = createTable(self.symbol_table)
+                self.visit(branches[0])
+                self.symbol_table = self.symbol_table.getFather()
+                try:
+                    self.builder.branch(end_block)
+                except:
+                    pass
+                self.builder.position_at_start(else_block)
+                self.symbol_table = createTable(self.symbol_table)
+                self.visit(branches[1])
+                self.symbol_table = self.symbol_table.getFather()
+                try:
+                    self.builder.branch(end_block)
+                except:
+                    pass
+                self.builder.position_at_start(end_block)
+
+                # try:
+                    
+                #     with self.builder.if_else(expr_val) as (then, otherwise):
+                #         with then:
+                #             self.symbol_table = createTable(self.symbol_table)
+                #             self.visit(branches[0])
+                #             self.symbol_table = self.symbol_table.getFather()
+                #         with otherwise:
+                #             self.symbol_table = createTable(self.symbol_table)
+                #             self.visit(branches[1])
+                #             self.symbol_table = self.symbol_table.getFather()
+                # except:
+                #     pass
             else:  # 只有if分支
+                block_name = self.builder.block.name
+                # self.symbol_table = createTable(self.symbol_table)
+                if_block = self.builder.append_basic_block(name='{}.if'.format(block_name))
+                then_block = self.builder.append_basic_block(name='{}.then'.format(block_name))
+                end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
                 try:
-                    with self.builder.if_then(expr_val):
-                        self.symbol_table = createTable(self.symbol_table)
-                        self.visit(branches[0])
-                        self.symbol_table = self.symbol_table.getFather()
+                    self.builder.branch(if_block)
                 except:
                     pass
+                self.builder.position_at_start(if_block)
+                expr_val = self.visit(ctx.expression())
+                self.builder.cbranch(expr_val, then_block, end_block)
+                self.builder.position_at_start(then_block)
+                self.symbol_table = createTable(self.symbol_table)
+                self.visit(branches[0])
+                self.symbol_table = self.symbol_table.getFather()
+                try:
+                    self.builder.branch(end_block)
+                except:
+                    pass
+                self.builder.position_at_start(end_block)
+                # try:
+                #     with self.builder.if_then(expr_val):
+                #         self.symbol_table = createTable(self.symbol_table)
+                #         self.visit(branches[0])
+                #         self.symbol_table = self.symbol_table.getFather()
+                # except:
+                #     pass
         # else:
         #     name_prefix = self.builder.block.name
         #     start_block = self.builder.block
