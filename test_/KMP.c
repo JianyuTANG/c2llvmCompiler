@@ -1,5 +1,4 @@
-//KMP TEST
-//#include <stdio.h>
+int scanf(const char *format, ...);
 int printf(const char *format,...);
 int strlen(const char * s);
 
@@ -63,18 +62,19 @@ void print_next(int *next, int n)
 
 int main()
 {
-	char *s = "ababcabcacbab";
-	char *t = "abcac";
+	char s[128];
+	char t[128];
+	printf("Please enter the source str:\n");
+	scanf("%s", s);
+	printf("Please enter the target str:\n");
+	scanf("%s", t);
 	int pos = 0;
 	int index;
-    int next[32];
+    int next[128];
 
-
-	printf("\nKMP test:\n");
 	get_next(t, next);
-	print_next(next, strlen(t));
 
 	index = match(s, t, pos, next);
-	printf("index = %d\n", index);
+	printf("Matched index is %d\n", index);
 	return 0;
 }
