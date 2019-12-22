@@ -17,7 +17,7 @@ def getSize(_type):
     pass
 
 
-class ToJSVisitor(CVisitor):
+class ToLLVMVisitor(CVisitor):
     BASE_TYPE = 0
     ARRAY_TYPE = 1
     ARRAY_2D_TYPE = 4
@@ -239,20 +239,23 @@ class ToJSVisitor(CVisitor):
                         # self.struct_reflection[struct_name] = {}
                         index = 0
                         ele_list = []
+                        param_list=[]
                         for ele in tmp_list:
                             # self.struct_reflection[struct_name][ele['name']] = {
                             #     'type': ele['type'],
                             #     'index': index
                             # }
+                            param_list.append(ele['name'])
+                            print("ele['name']",ele['name'])
                             ele_list.append(ele['type'])
                             # index = index + 1
                         new_struct = ir.global_context.get_identified_type(name=struct_name)
                         new_struct.set_body(*ele_list)
                         print("insert before")
                         # 将struct定义插入结构体表，记录
-                        self.struct_table.insert(struct_name,new_struct)
+                        self.struct_table.insert(struct_name,new_struct,param_list)
                         print("struct table: ",self.struct_table)
-                        print("gett",self.struct_table.getValue(struct_name))
+                        print("gett",self.struct_table.getPtr(struct_name))
                         # self.symbol_table.insert(struct_name,new_struct)
                         print("insert after")
                         # self.is_defining_struct = ''
@@ -405,11 +408,17 @@ class ToJSVisitor(CVisitor):
                 continue
             elif type(_type)==ir.types.IdentifiedStructType:
                 # 结构体实例化，不需要初始值设定
-                ptr_struct=self.struct_table.getValue(_type.name)
+                ptr_struct=self.struct_table.getPtr(_type.name)
                 # 从结构体表获取定义
-                ptr_struct_instance=self.builder.alloca(ptr_struct)
+                ptr_struct_instance_=self.builder.alloca(ptr_struct)
+                print(ptr_struct_instance_)
                 # 结构体实例化，分配内存
-                self.symbol_table.insert(name,ptr_struct_instance)
+                print("ooooooooooooooooooooooo",_type.name)
+                self.symbol_table.insert(name,value=ptr_struct_instance_)
+                print(self.symbol_table.value_list)
+                print(self.symbol_table.getValue(name))
+                # 存入符号表，先记录struct类型指针，再记录当前实例化指针
+                print(self.symbol_table.value_list)
                 continue
 
             _type2 = self.symbol_table.getType(name)
@@ -503,11 +512,14 @@ class ToJSVisitor(CVisitor):
             print("into conditional")
             return self.visit(ctx.conditionalExpression())
         elif ctx.unaryExpression():
+            print("uuuuuunaryexpression:",ctx.unaryExpression().getText())
             lhs, pt=self.visit(ctx.unaryExpression())
             if not pt:
                 raise Exception()
             op_=self.visit(ctx.assignmentOperator())
             value_=self.visit(ctx.assignmentExpression())
+            print("value_:",value_)
+            print(lhs)
             if op_=='=':
                 return self.builder.store(value_,lhs)
             elif op_=='+=':
@@ -690,10 +702,6 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.relationalExpression())
         else:
             op = ctx.children[1].getText()
-            print("op",op)
-            # rhs=ir.Constant(self.INT_TYPE,ctx.children[2].getText())
-            # lhs=self.builder.alloca(self.INT_TYPE)
-            # self.builder.store(self.INT_TYPE(33),lhs)
             lhs = self.visit(ctx.equalityExpression())
             rhs=self.visit(ctx.relationalExpression())
             return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
@@ -788,6 +796,21 @@ class ToJSVisitor(CVisitor):
 
 
     def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
+        """
+        unaryExpression
+            :   postfixExpression
+            |   '++' unaryExpression
+            |   '--' unaryExpression
+            |   unaryOperator castExpression
+            |   'sizeof' unaryExpression
+            |   'sizeof' '(' typeName ')'
+            |   '_Alignof' '(' typeName ')'
+            |   '&&' Identifier // GCC extension address of label
+            ;
+        :param ctx:
+        :return:
+        """
+        print("in unary expression: ",ctx.children)
         if ctx.postfixExpression():
             return self.visit(ctx.postfixExpression())
 
@@ -846,7 +869,6 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("postfix expression:", ctx.children)
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
 
@@ -887,6 +909,28 @@ class ToJSVisitor(CVisitor):
                 except:
                     print('print args meet question')
                 return self.builder.call(lhs, args_), False
+            elif ctx.children[1].getText()=='.':
+                struct_instance_ptr_name=ctx.postfixExpression().getText()
+                param_name=ctx.Identifier().getText()
+                struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_type_name = struct_instance_ptr.type.pointee.name
+                indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
+                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
+                ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
+                return ptr,True
+            elif ctx.children[1].getText()=='->':
+                struct_instance_ptr_name=ctx.postfixExpression().getText()
+                param_name=ctx.Identifier().getText()
+                struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
+                struct_type_name = struct_instance_ptr.type.pointee.pointee.name
+                new_ptr=self.builder.load(struct_instance_ptr)
+                # 先将结构体指针load为结构体
+                indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
+                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
+                ptr = self.builder.gep(ptr=new_ptr, indices=indices)
+                return ptr,True
+            else:
+                print("Ooops, unsupported type in postfix expression!")
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         """
@@ -948,8 +992,6 @@ class ToJSVisitor(CVisitor):
         #     val = self.builder.load(val)
         #     return val
 
-    # def visitExpression(self, ctx: CParser.ExpressionContext):
-    #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitArgumentExpressionList(self, ctx:CParser.ArgumentExpressionListContext):
         if not ctx.argumentExpressionList():
@@ -1216,19 +1258,15 @@ class ToJSVisitor(CVisitor):
         #     self.switch_context = old_context
         #     self.break_block = old_break
 
-    # def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-    #     return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
-
     def visitTerminal(self, node):
         return node.getText()
 
     def visitInitializerList(self, ctx: CParser.InitializerListContext):
         '''
-
-initializerList
-    :   designation? initializer
-    |   initializerList ',' designation? initializer
-    ;
+        initializerList
+            :   designation? initializer
+            |   initializerList ',' designation? initializer
+            ;
         不考虑有designation的情况
         :param ctx:
         :return:
@@ -1296,7 +1334,7 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
     tree = parser.compilationUnit()
-    _visitor = ToJSVisitor()
+    _visitor = ToLLVMVisitor()
     _visitor.visit(tree)
 
     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
