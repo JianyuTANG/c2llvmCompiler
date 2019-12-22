@@ -8,8 +8,6 @@ class StructTable:
         return self.type_list[name]['ptr']
 
     def getParamIndice(self,name,param_name):
-        print("name: ",name)
-        print("keys:",self.type_list.keys())
         if name not in self.type_list.keys():
             return None
         return self.type_list[name]['param_list'].index(param_name)

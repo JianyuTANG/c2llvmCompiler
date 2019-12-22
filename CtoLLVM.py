@@ -149,7 +149,6 @@ class ToLLVMVisitor(CVisitor):
             label_ = self.visit(ctx.structOrUnion())
             if label_ == 'struct':
                 # 结构体
-                print("iiiden:",ctx.Identifier().getText())
                 struct_name = ctx.Identifier().getText()
                 new_struct = ir.global_context.get_identified_type(name=struct_name)
                 return new_struct
@@ -587,6 +586,12 @@ class ToLLVMVisitor(CVisitor):
             self.builder.store(temp, ptr)
             ptr = self.builder.bitcast(ptr, ir.PointerType(self.CHAR_TYPE))
             return ptr, False
+        elif ctx.expression():
+            print("pppp")
+            print("ctx.expression().getText()",ctx.expression().getText())
+            return self.visit(ctx.expression()),False
+        else:
+            print("Oops, not supported in primary expression")
 
 
     def visitArgumentExpressionList(self, ctx:CParser.ArgumentExpressionListContext):
