@@ -299,7 +299,9 @@ class ToJSVisitor(CVisitor):
             print("into conditional")
             return self.visit(ctx.conditionalExpression())
         elif ctx.unaryExpression():
-            lhs=self.visit(ctx.unaryExpression())
+            lhs, pt=self.visit(ctx.unaryExpression())
+            if not pt:
+                raise Exception()
             op_=self.visit(ctx.assignmentOperator())
             value_=self.visit(ctx.assignmentExpression())
             if op_=='=':
@@ -546,7 +548,7 @@ class ToJSVisitor(CVisitor):
 
 
     def visitMultiplicativeExpression(self, ctx:CParser.MultiplicativeExpressionContext):
-        _cast = self.visit(ctx.castExpression())
+        _cast, _ = self.visit(ctx.castExpression())
         if ctx.multiplicativeExpression():
             _mul = self.visit(ctx.multiplicativeExpression())
             if ctx.Star():
@@ -559,10 +561,18 @@ class ToJSVisitor(CVisitor):
             return _cast
 
     def visitCastExpression(self, ctx:CParser.CastExpressionContext):
-        val = self.visit(ctx.unaryExpression())
-        if val.type.is_pointer:
-            val = self.builder.load(val)
-        return val
+        if ctx.unaryExpression():
+            val, pt = self.visit(ctx.unaryExpression())
+            if pt:
+                pt = val
+                val = self.builder.load(val)
+            return val, pt
+
+        if ctx.typeName():
+            _target_type = self.visit(ctx.typeName())
+            val, pt = self.visit(ctx.castExpression())
+            val = self.builder.bitcast(val, _target_type)
+            return val, pt
 
 
     def visitUnaryExpression(self, ctx:CParser.UnaryExpressionContext):
@@ -570,11 +580,19 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.postfixExpression())
 
         if ctx.unaryOperator():
-            val = self.visit(ctx.castExpression())
+            val, pt = self.visit(ctx.castExpression())
             op = self.visit(ctx.unaryOperator())
             if op == '-':
-                return self.builder.neg(val)
-                
+                return self.builder.neg(val), False
+            elif op == '&':
+                if pt:
+                    return pt, False
+                else:
+                    raise Exception()
+            elif op == '*':
+                pt = val
+                val = self.builder.load(pt)
+                return val, pt
 
     def visitPostfixExpression(self, ctx: CParser.PostfixExpressionContext):
         """
@@ -598,13 +616,12 @@ class ToJSVisitor(CVisitor):
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
         elif ctx.expression():
-            var = self.visit(ctx.postfixExpression())
+            var, pt = self.visit(ctx.postfixExpression())
             index = self.visit(ctx.expression())
             indices = [ir.Constant(self.INT_TYPE, 0), index]
             print(var)
             ptr = self.builder.gep(ptr=var, indices=indices)
-            val = self.builder.load(ptr)
-            return val
+            return ptr, True
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
                 # 表示是一个函数声明
@@ -614,8 +631,8 @@ class ToJSVisitor(CVisitor):
                     print(ctx.argumentExpressionList().getText())
                 else:
                     args_=[]
-                lhs=self.visit(ctx.postfixExpression())
-                return self.builder.call(lhs, args_)
+                lhs, _=self.visit(ctx.postfixExpression())
+                return self.builder.call(lhs, args_), False
 
     def visitPrimaryExpression(self, ctx: CParser.PrimaryExpressionContext):
         """
@@ -640,21 +657,21 @@ class ToJSVisitor(CVisitor):
             print("symbol table",self.symbol_table.value_list)
             rhs=self.symbol_table.getValue(ctx.Identifier().getText())
             print(rhs)
-            return rhs
+            return rhs, True
         if ctx.Constant():
             _str = ctx.Constant().getText()
             if re.match(r'^\d+$', _str):
                 val = int(_str)
-                return ir.Constant(self.INT_TYPE, val)
+                return ir.Constant(self.INT_TYPE, val), False
             elif re.match(r'^\d*.\d+$', _str):
                 val = float(_str)
-                return ir.Constant(self.FLOAT_TYPE, val)
+                return ir.Constant(self.FLOAT_TYPE, val), False
             elif re.match(r"^'.'$", _str):
                 val = ord(_str[1])
-                return ir.Constant(self.CHAR_TYPE, val)
+                return ir.Constant(self.CHAR_TYPE, val), False
             else:
                 raise Exception()
-        elif ctx.StringLiteral():
+        if ctx.StringLiteral():
             _str = ctx.StringLiteral()[0].getText()[1:-1]
             # byte = _str.encode('ascii') + b'\0'
             _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
@@ -663,18 +680,18 @@ class ToJSVisitor(CVisitor):
             ptr = self.builder.alloca(arr_type)
             self.builder.store(temp, ptr)
             ptr = self.builder.bitcast(ptr, ir.PointerType(self.CHAR_TYPE))
-            pptr = self.builder.alloca(ptr.type)
-            self.builder.store(ptr, pptr)
+            # pptr = self.builder.alloca(ptr.type)
+            # self.builder.store(ptr, pptr)
             # # temp = self.builder.alloca(arr_type)
             # for seq, val in enumerate(_str):
             #     self.builder.insert_value(temp, val, seq)
             #     # 处理字符串
-            return pptr
-        else:
-            # 变量名
-            val = self.symbol_table.getValue(_str)
-            val = self.builder.load(val)
-            return val
+            return ptr, False
+        # else:
+        #     # 变量名
+        #     val = self.symbol_table.getValue(_str)
+        #     val = self.builder.load(val)
+        #     return val
 
     # def visitExpression(self, ctx: CParser.ExpressionContext):
     #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
