@@ -6,6 +6,7 @@ from parser_.CVisitor import CVisitor
 from llvmlite import ir
 import re
 from SymbolTable import *
+from StructTable import *
 
 
 def addIndentation(a, num=2):
@@ -39,6 +40,8 @@ class ToJSVisitor(CVisitor):
         self.symbol_table = SymbolTable(None)
         self.lst_continue = None
         self.lst_break = None
+        self.func_table = FuncTable()
+        self.struct_table = StructTable()
         # ir.GlobalVariable(self.module, ir.IntType(32), name="glo")
         # and declare a function named "fpadd" inside it
         # self.func = ir.Function(self.module, self.fnty, name="fpadd")
