@@ -245,15 +245,15 @@ class ToJSVisitor(CVisitor):
                 if self.builder:
                     temp = self.builder.alloca(_type, size=1, name=name)
                     if init_val:
-                        if _type.is_pointer and _type.pointee == self.CHAR_TYPE:
-                            # 字符串指针变量
-                            ptr = self.builder.alloca(init_val.type)
-                            self.builder.store(init_val, ptr)
-                            ptr = self.builder.bitcast(ptr, _type)
-                            self.builder.store(ptr, temp)
-                        else:
-                            # 其他变量
-                            self.builder.store(init_val, temp)
+                        # if _type.is_pointer and _type.pointee == self.CHAR_TYPE:
+                        #     # 字符串指针变量
+                        #     ptr = self.builder.alloca(init_val.type)
+                        #     self.builder.store(init_val, ptr)
+                        #     ptr = self.builder.bitcast(ptr, _type)
+                        #     self.builder.store(ptr, temp)
+                        # else:
+                        #     # 其他变量
+                        self.builder.store(init_val, temp)
                 else:
                     temp = ir.GlobalValue(self.module, _type, name=name)
                     # if init_val:
@@ -597,9 +597,11 @@ class ToJSVisitor(CVisitor):
             if ctx.children[1].getText()=='(':
                 # 表示是一个函数声明
                 print(ctx.postfixExpression().getText())
-                args_=[]
                 if ctx.argumentExpressionList():
+                    args_ = self.visit(ctx.argumentExpressionList())
                     print(ctx.argumentExpressionList().getText())
+                else:
+                    args_=[]
                 lhs=self.visit(ctx.postfixExpression())
                 return self.builder.call(lhs, args_)
 
@@ -643,17 +645,19 @@ class ToJSVisitor(CVisitor):
         elif ctx.StringLiteral():
             _str = ctx.StringLiteral()[0].getText()[1:-1]
             # byte = _str.encode('ascii') + b'\0'
-            length = len(_str) + 1
-            # arr_type = ir.ArrayType(self.CHAR_TYPE, length)
             _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
             temp = ir.Constant.literal_array(_str_array)
-            # ptr = self.builder.alloca(arr_type)
-            # self.builder.store(temp, ptr)
+            arr_type = ir.ArrayType(self.CHAR_TYPE, len(_str_array))
+            ptr = self.builder.alloca(arr_type)
+            self.builder.store(temp, ptr)
+            ptr = self.builder.bitcast(ptr, ir.PointerType(self.CHAR_TYPE))
+            pptr = self.builder.alloca(ptr.type)
+            self.builder.store(ptr, pptr)
             # # temp = self.builder.alloca(arr_type)
             # for seq, val in enumerate(_str):
             #     self.builder.insert_value(temp, val, seq)
             #     # 处理字符串
-            return temp
+            return pptr
         else:
             # 变量名
             val = self.symbol_table.getValue(_str)
@@ -662,6 +666,15 @@ class ToJSVisitor(CVisitor):
 
     # def visitExpression(self, ctx: CParser.ExpressionContext):
     #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
+
+    def visitArgumentExpressionList(self, ctx:CParser.ArgumentExpressionListContext):
+        if not ctx.argumentExpressionList():
+            return [self.visit(ctx.assignmentExpression())]
+        
+        _args = self.visit(ctx.argumentExpressionList())
+        _args.append(self.visit(ctx.assignmentExpression()))
+        return _args
+
 
     def visitCompoundStatement(self, ctx):
         for i in ctx.children:
