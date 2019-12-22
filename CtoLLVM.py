@@ -212,7 +212,6 @@ class ToJSVisitor(CVisitor):
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
-                print(self.symbol_table.getValue(name))
                 continue
 
             _type2 = self.symbol_table.getType(name)
@@ -228,25 +227,17 @@ class ToJSVisitor(CVisitor):
                         if l > length.constant:
                             # 数组过大
                             return
-                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
                         for i in range(l):
                             indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
                             ptr = self.builder.gep(ptr=temp, indices=indices)
                             self.builder.store(init_val[i], ptr)
+                        temp = self.builder.bitcast(temp, ir.PointerType(_type))
+                        temp_ptr = self.builder.alloca(temp.type)
+                        self.builder.store(temp, temp_ptr)
+                        temp = temp_ptr
                 else:
                     temp = ir.GlobalValue(self.module, arr_type, name=name)
-                    if init_val:
-                        # 有初值
-                        l = len(init_val)
-                        if l > length.constant:
-                            # 数组过大
-                            return
-                        # indices = [ir.Constant(ir.IntType(32), i) for i in range(l)]
-                        for i in range(l):
-                            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), i)]
-                            ptr = self.builder.gep(ptr=temp, indices=indices)
-                            self.builder.store(init_val[i], ptr)
-
+                # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
 
             else:
@@ -265,25 +256,11 @@ class ToJSVisitor(CVisitor):
                         self.builder.store(init_val, temp)
                 else:
                     temp = ir.GlobalValue(self.module, _type, name=name)
-                    if init_val:
-                        temp.store(value=init_val, ptr=temp)
+                    # if init_val:
+                    #     temp.store(value=init_val, ptr=temp)
 
                 # 保存指针
                 self.symbol_table.insert(name, btype=_type2, value=temp)
-
-
-
-        # rtn_ = self.visit(ctx.initDeclaratorList())
-        # len_ = len(rtn_)
-        # # 根据返回值长度，判断是否有赋值语句，还是仅仅是声明变量
-        # if len_ == 2:
-        #     name_, val_ = rtn_[0], rtn_[1]
-        #     new_int_ = self.builder.alloca(_type, name=name_)
-        #     self.builder.store(_type(val_), new_int_)
-        # elif len_ == 1:
-        #     name_ = rtn_
-        #     new_int_ = self.builder.alloca(_type, name=name_)
-        # # return ''
 
     def visitAssignmentExpression(self, ctx: CParser.AssignmentExpressionContext):
         """
@@ -594,17 +571,28 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("postfix expression:",ctx.children)
+        print("postfix expression:", ctx.children)
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
+
         elif ctx.expression():
+            # 获取指向指针的指针
             var = self.visit(ctx.postfixExpression())
+            # 得到指针的值
+            var = self.builder.load(var)
+            # 获取指针指向的类型
+            value = self.builder.load(var)
+            arr_type = ir.PointerType(ir.ArrayType(value.type, 100))
+            # 将指针转换为指向数组的指针
+            var = self.builder.bitcast(var, arr_type)
+            # 获取 index 并构造 indices
             index = self.visit(ctx.expression())
             indices = [ir.Constant(self.INT_TYPE, 0), index]
-            print(var)
+            # 取值
             ptr = self.builder.gep(ptr=var, indices=indices)
             val = self.builder.load(ptr)
             return val
+
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
                 # 表示是一个函数声明
@@ -643,20 +631,21 @@ class ToJSVisitor(CVisitor):
             return rhs
         if ctx.Constant():
             _str = ctx.Constant().getText()
-            if re.match(r'^\d+$', _str):
-                val = int(_str)
+            val = eval(_str)
+            if val.__class__ == int:
                 return ir.Constant(self.INT_TYPE, val)
-            elif re.match(r'^\d*.\d+$', _str):
-                val = float(_str)
+            elif val.__class__ == float:
                 return ir.Constant(self.FLOAT_TYPE, val)
-            elif re.match(r"^'.'$", _str):
-                val = ord(_str[1])
+            elif val.__class__ == str:
+                val = ord(val)
                 return ir.Constant(self.CHAR_TYPE, val)
             else:
                 raise Exception()
         elif ctx.StringLiteral():
-            _str = ctx.StringLiteral()[0].getText()[1:-1]
+            _str = eval(ctx.StringLiteral()[0].getText())
             # byte = _str.encode('ascii') + b'\0'
+            # length = len(_str) + 1
+            # arr_type = ir.ArrayType(self.CHAR_TYPE, length)
             _str_array = [ir.Constant(self.CHAR_TYPE, ord(i)) for i in _str] + [ir.Constant(self.CHAR_TYPE, 0)]
             temp = ir.Constant.literal_array(_str_array)
             arr_type = ir.ArrayType(self.CHAR_TYPE, len(_str_array))
