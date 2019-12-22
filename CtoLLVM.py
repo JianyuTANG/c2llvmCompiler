@@ -176,10 +176,10 @@ class ToJSVisitor(CVisitor):
     #         # string definition
     #         return f'{ctx.Identifier().getText()}'        
 
-    def visitFunctionDefinitionOrDeclaration(self, ctx: CParser.FunctionDefinitionContext):
-        if ctx.declarationList():
-            return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
-        return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
+    # def visitFunctionDefinitionOrDeclaration(self, ctx: CParser.FunctionDefinitionContext):
+    #     if ctx.declarationList():
+    #         return f'{ctx.declarator().directDeclarator().Identifier().getText()}({self.visit(ctx.declarationList())})'
+    #     return f'{ctx.declarator().directDeclarator().Identifier().getText()}()'
 
     def visitTypeSpecifier(self, ctx: CParser.TypeSpecifierContext):
         if ctx.pointer():
@@ -208,7 +208,7 @@ class ToJSVisitor(CVisitor):
                 name = _func[0]
                 params = _func[1]
                 args = [i for i, j in params]
-                fnty = ir.FunctionType(_type, args)
+                fnty = ir.FunctionType(_type, args,  var_arg=True)
                 func = ir.Function(self.module, fnty, name=name)
                 _type2 = self.symbol_table.getType(name)
                 self.symbol_table.insert(name, btype=_type2, value=func)
@@ -595,7 +595,9 @@ class ToJSVisitor(CVisitor):
 
         elif ctx.expression():
             # 获取指向指针的指针
-            var = self.visit(ctx.postfixExpression())
+            var, pt = self.visit(ctx.postfixExpression())
+            if not pt:
+                raise Exception()
             # 得到指针的值
             var = self.builder.load(var)
             # 获取指针指向的类型
@@ -649,12 +651,12 @@ class ToJSVisitor(CVisitor):
             _str = ctx.Constant().getText()
             val = eval(_str)
             if val.__class__ == int:
-                return ir.Constant(self.INT_TYPE, val)
+                return ir.Constant(self.INT_TYPE, val), False
             elif val.__class__ == float:
-                return ir.Constant(self.FLOAT_TYPE, val)
+                return ir.Constant(self.FLOAT_TYPE, val), False
             elif val.__class__ == str:
                 val = ord(val)
-                return ir.Constant(self.CHAR_TYPE, val)
+                return ir.Constant(self.CHAR_TYPE, val), False
             else:
                 raise Exception()
         elif ctx.StringLiteral():
