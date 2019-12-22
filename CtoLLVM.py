@@ -540,14 +540,15 @@ class ToJSVisitor(CVisitor):
         if ctx.logicalAndExpression():
             # 如果有多个'与'语句
             lhs = self.visit(ctx.inclusiveOrExpression())
-            result = self.builder.alloca(self.BOOL_TYPE)
-            with self.builder.if_else(lhs) as (then, otherwise):
-                with then:
-                    self.builder.store(self.BOOL_TYPE(1), result)
-                with otherwise:
-                    rhs = self.visit(ctx.logicalAndExpression())
-                    self.builder.store(rhs, result)
-            return self.builder.load(result)
+            # result = self.builder.alloca(self.BOOL_TYPE)
+            rhs = self.visit(ctx.logicalAndExpression())
+            # with self.builder.if_else(lhs) as (then, otherwise):
+            #     with then:
+            #         self.builder.store(self.BOOL_TYPE(1), result)
+            #     with otherwise:
+            #         rhs = self.visit(ctx.logicalAndExpression())
+            #         self.builder.store(rhs, result)
+            return self.builder.and_(lhs, rhs)
         else:
             print(ctx.children)
             return self.visit(ctx.inclusiveOrExpression())
@@ -612,15 +613,20 @@ class ToJSVisitor(CVisitor):
         if ctx.logicalOrExpression():
             # 如果有多个'或'语句
             lhs= self.visit(ctx.logicalOrExpression())
-            result = self.builder.alloca(self.BOOL_TYPE)
+            rhs= self.visit(ctx.logicalAndExpression())
+
+            # result = self.builder.alloca(self.BOOL_TYPE)
             # 如果第一个logicalandexpression返回否才继续，否则直接返回真
-            with self.builder.if_else(lhs) as (then, otherwise):
-                with then:
-                    self.builder.store(self.BOOL_TYPE(1), result)
-                with otherwise:
-                    rhs= self.visit(ctx.logicalAndExpression())
-                    self.builder.store(rhs, result)
-            return self.builder.load(result)
+            # try:
+            #     with self.builder.if_else(lhs) as (then, otherwise):
+            #         with then:
+            #             self.builder.store(self.BOOL_TYPE(1), result)
+            #         with otherwise:
+            #             rhs= self.visit(ctx.logicalAndExpression())
+            #             self.builder.store(rhs, result)
+            # except:
+            #     pass
+            return self.builder.or_(lhs, rhs)
         else:
             print("no")
             return self.visit(ctx.logicalAndExpression())
@@ -985,13 +991,19 @@ class ToJSVisitor(CVisitor):
             end_block = self.builder.append_basic_block(name='{}.end'.format(block_name))
             lst_continue, lst_break = self.lst_continue, self.lst_break
             self.lst_continue, self.lst_break = init_block, end_block
-            self.builder.branch(init_block)
+            try:
+                self.builder.branch(init_block)
+            except:
+                pass
             self.builder.position_at_start(init_block)
             expression = self.visit(ctx.expression())
             self.builder.cbranch(expression, do_block, end_block)
             self.builder.position_at_start(do_block)
             self.visit(ctx.statement())
-            self.builder.branch(init_block)
+            try:
+                self.builder.branch(init_block)
+            except:
+                pass
             # with self.builder.if_else(expression) as (then, otherwise):
             #     with then:
             #         self.builder.branch(loop_block)
@@ -1102,20 +1114,26 @@ class ToJSVisitor(CVisitor):
             print("expression result:", expr_val)
             branches = ctx.statement()
             if len(branches) == 2:  # 存在else if/else语句
-                with self.builder.if_else(expr_val) as (then, otherwise):
-                    with then:
+                try:
+                    with self.builder.if_else(expr_val) as (then, otherwise):
+                        with then:
+                            self.symbol_table = createTable(self.symbol_table)
+                            self.visit(branches[0])
+                            self.symbol_table = self.symbol_table.getFather()
+                        with otherwise:
+                            self.symbol_table = createTable(self.symbol_table)
+                            self.visit(branches[1])
+                            self.symbol_table = self.symbol_table.getFather()
+                except:
+                    pass
+            else:  # 只有if分支
+                try:
+                    with self.builder.if_then(expr_val):
                         self.symbol_table = createTable(self.symbol_table)
                         self.visit(branches[0])
                         self.symbol_table = self.symbol_table.getFather()
-                    with otherwise:
-                        self.symbol_table = createTable(self.symbol_table)
-                        self.visit(branches[1])
-                        self.symbol_table = self.symbol_table.getFather()
-            else:  # 只有if分支
-                with self.builder.if_then(expr_val):
-                    self.symbol_table = createTable(self.symbol_table)
-                    self.visit(branches[0])
-                    self.symbol_table = self.symbol_table.getFather()
+                except:
+                    pass
         # else:
         #     name_prefix = self.builder.block.name
         #     start_block = self.builder.block
