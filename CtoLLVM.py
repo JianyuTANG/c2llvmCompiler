@@ -17,9 +17,10 @@ def getSize(_type):
     pass
 
 
-class ToJSVisitor(CVisitor):
+class ToLLVMVisitor(CVisitor):
     BASE_TYPE = 0
     ARRAY_TYPE = 1
+    ARRAY_2D_TYPE = 4
     FUNCTION_TYPE = 2
 
     CHAR_TYPE = ir.IntType(8)
@@ -127,11 +128,25 @@ class ToJSVisitor(CVisitor):
             return name
         elif ctx.children[1].getText() == '[':
             name = self.visit(ctx.directDeclarator())
-            if ctx.assignmentExpression():
-                length = self.visit(ctx.assignmentExpression())
-                btype = (self.ARRAY_TYPE, length)
-            else:
-                pass
+            if self.symbol_table.getType(name) is not None and self.symbol_table.getValue(name) is None:
+                # 二维数组的情况
+                btype, length = self.symbol_table.getType(name)
+                if btype == self.ARRAY_TYPE:
+                    first_dimension = length
+                    second_dimension = self.visit(ctx.assignmentExpression())
+                    dim = (first_dimension, second_dimension)
+                    btype = (self.ARRAY_2D_TYPE, dim)
+                    self.symbol_table.insert(name, btype=btype)
+                    return name
+
+            # 普通一维数组
+            length = self.visit(ctx.assignmentExpression())
+            btype = (self.ARRAY_TYPE, length)
+            # if ctx.assignmentExpression():
+            #     length = self.visit(ctx.assignmentExpression())
+            #     btype = (self.ARRAY_TYPE, length)
+            # else:
+            #     pass
             self.symbol_table.insert(name, btype=btype)
             return name
         elif ctx.children[1].getText() == '(':
@@ -408,7 +423,7 @@ class ToJSVisitor(CVisitor):
 
             _type2 = self.symbol_table.getType(name)
             if _type2[0] == self.ARRAY_TYPE:
-                # 数组类型
+                # 1D数组类型
                 length = _type2[1]
                 arr_type = ir.ArrayType(_type, length.constant)
                 if self.builder:
@@ -432,6 +447,34 @@ class ToJSVisitor(CVisitor):
                 self.builder.store(temp, temp_ptr)
                 temp = temp_ptr
                 self.symbol_table.insert(name, btype=_type2, value=temp)
+
+            elif _type2[0] == self.ARRAY_2D_TYPE:
+                # 2D数组类型
+                dim = _type2[1]
+                first_dim = dim[0]
+                second_dim = dim[1]
+                first_dim_c = first_dim.constant
+                second_dim_c = second_dim.constant
+                print(first_dim_c)
+                print(second_dim_c)
+                inner_arr_type = ir.ArrayType(_type, second_dim_c)       # int *
+                for_outer_type = ir.PointerType(_type)   # int *
+                arr_type = ir.ArrayType(for_outer_type, first_dim_c)     # int **
+                outer_arr = self.builder.alloca(arr_type, name=name)     # int ***
+                for i in range(first_dim_c):
+                    temp = self.builder.alloca(inner_arr_type)           # int **
+                    temp = self.builder.bitcast(temp, ir.PointerType(_type))    # int *
+
+                    # temp_ptr = self.builder.alloca(temp.type)
+                    # self.builder.store(temp, temp_ptr)
+
+                    indices = [ir.Constant(self.INT_TYPE, 0), ir.Constant(self.INT_TYPE, i)]
+                    ptr = self.builder.gep(ptr=outer_arr, indices=indices)
+                    self.builder.store(temp, ptr)
+                temp = self.builder.bitcast(outer_arr, ir.PointerType(for_outer_type))
+                temp_ptr = self.builder.alloca(temp.type)
+                self.builder.store(temp, temp_ptr)
+                self.symbol_table.insert(name, btype=_type2, value=temp_ptr)
 
             else:
                 # 普通变量
@@ -659,10 +702,6 @@ class ToJSVisitor(CVisitor):
             return self.visit(ctx.relationalExpression())
         else:
             op = ctx.children[1].getText()
-            print("op",op)
-            # rhs=ir.Constant(self.INT_TYPE,ctx.children[2].getText())
-            # lhs=self.builder.alloca(self.INT_TYPE)
-            # self.builder.store(self.INT_TYPE(33),lhs)
             lhs = self.visit(ctx.equalityExpression())
             rhs=self.visit(ctx.relationalExpression())
             return self.builder.icmp_signed(cmpop=op, lhs=lhs, rhs=rhs)
@@ -830,7 +869,6 @@ class ToJSVisitor(CVisitor):
         :param ctx:
         :return:
         """
-        print("postfix expression:", ctx.children)
         if ctx.primaryExpression():
             return self.visit(ctx.primaryExpression())
 
@@ -840,8 +878,10 @@ class ToJSVisitor(CVisitor):
             if not pt:
                 raise Exception()
             # 得到指针的值
+            print(var.type)
             var = self.builder.load(var)
             # 获取指针指向的类型
+            print(var.type)
             value = self.builder.load(var)
             arr_type = ir.PointerType(ir.ArrayType(value.type, 100))
             # 将指针转换为指向数组的指针
@@ -851,6 +891,7 @@ class ToJSVisitor(CVisitor):
             indices = [ir.Constant(self.INT_TYPE, 0), index]
             # 取值
             ptr = self.builder.gep(ptr=var, indices=indices)
+            print(ptr.type)
             return ptr, True
         elif ctx.postfixExpression():
             if ctx.children[1].getText()=='(':
@@ -873,25 +914,20 @@ class ToJSVisitor(CVisitor):
                 param_name=ctx.Identifier().getText()
                 struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
                 struct_type_name = struct_instance_ptr.type.pointee.name
-                print("yyyy",struct_type_name,struct_instance_ptr)
                 indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
-                print(indice_)
                 indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
                 ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
-                print(ptr)
                 return ptr,True
             elif ctx.children[1].getText()=='->':
                 struct_instance_ptr_name=ctx.postfixExpression().getText()
                 param_name=ctx.Identifier().getText()
                 struct_instance_ptr=self.symbol_table.getValue(struct_instance_ptr_name)
-                struct_type_name = struct_instance_ptr.name
-                print("struct_type name:",struct_type_name)
-                print("yyyy",struct_type_name,struct_instance_ptr.type.pointee)
-                # indice_=self.struct_table.getParamIndice(struct_instance_ptr.type.pointee.name,param_name)
-                # print(indice_)
-                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)]
-                ptr = self.builder.gep(ptr=struct_instance_ptr, indices=indices)
-                print(ptr)
+                struct_type_name = struct_instance_ptr.type.pointee.pointee.name
+                new_ptr=self.builder.load(struct_instance_ptr)
+                # 先将结构体指针load为结构体
+                indice_=self.struct_table.getParamIndice(struct_type_name,param_name)
+                indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), indice_)]
+                ptr = self.builder.gep(ptr=new_ptr, indices=indices)
                 return ptr,True
             else:
                 print("Ooops, unsupported type in postfix expression!")
@@ -956,8 +992,6 @@ class ToJSVisitor(CVisitor):
         #     val = self.builder.load(val)
         #     return val
 
-    # def visitExpression(self, ctx: CParser.ExpressionContext):
-    #     return ', '.join([self.visit(x) for x in ctx.assignmentExpression()])
 
     def visitArgumentExpressionList(self, ctx:CParser.ArgumentExpressionListContext):
         if not ctx.argumentExpressionList():
@@ -1224,19 +1258,15 @@ class ToJSVisitor(CVisitor):
         #     self.switch_context = old_context
         #     self.break_block = old_break
 
-    # def visitForDeclaration(self, ctx: CParser.ForDeclarationContext):
-    #     return self.visit(ctx.typeSpecifier()) + ' ' + self.visit(ctx.initDeclaratorList())
-
     def visitTerminal(self, node):
         return node.getText()
 
     def visitInitializerList(self, ctx: CParser.InitializerListContext):
         '''
-
-initializerList
-    :   designation? initializer
-    |   initializerList ',' designation? initializer
-    ;
+        initializerList
+            :   designation? initializer
+            |   initializerList ',' designation? initializer
+            ;
         不考虑有designation的情况
         :param ctx:
         :return:
@@ -1304,7 +1334,7 @@ def main(argv):
     stream = CommonTokenStream(lexer)
     parser = CParser(stream)
     tree = parser.compilationUnit()
-    _visitor = ToJSVisitor()
+    _visitor = ToLLVMVisitor()
     _visitor.visit(tree)
 
     with open('test.ll' if len(argv) <= 2 else argv[2], 'w', encoding='utf-8') as f:
