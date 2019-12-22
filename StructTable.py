@@ -2,13 +2,21 @@ class StructTable:
     def __init__(self):
         self.type_list = {}
 
-    def getValue(self, name):
+    def getPtr(self, name):
         if name not in self.type_list.keys():
             return None
-        return self.type_list[name]
+        return self.type_list[name]['ptr']
 
-    def insert(self, name, value):
-        self.type_list[name] = value
+    def getParamIndice(self,name,param_name):
+        print("name: ",name)
+        print("keys:",self.type_list.keys())
+        if name not in self.type_list.keys():
+            return None
+        return self.type_list[name]['param_list'].index(param_name)
+
+    def insert(self, name, ptr,param_list):
+        # ptr 指结构体定义指针， param_dist指参数映射字典
+        self.type_list[name] = {"ptr":ptr,"param_list":param_list}
 
 
 class FuncTable:
